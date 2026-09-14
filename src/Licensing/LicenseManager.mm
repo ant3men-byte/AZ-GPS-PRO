@@ -17,7 +17,7 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
 @implementation AZLicenseWindow
 - (UIView *)hitTest:(CGPoint)p withEvent:(UIEvent *)e {UIView *v=[super hitTest:p withEvent:e];return v==self||v==self.rootViewController.view?nil:v;}
 @end
-@interface AZLicenseManager ()
+@interface AZLicenseManager () <UIGestureRecognizerDelegate>
 @property(nonatomic,strong) AZInstallationIdentity *identity;
 @property(nonatomic,strong) AZLicenseAPIClient *api;
 @property(nonatomic,strong) NSTimer *timer;
@@ -49,13 +49,13 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
  nw_path_monitor_set_update_handler(self.monitor,^(nw_path_t path){AZLicenseManager *m=weak;if(!m)return;BOOL available=nw_path_get_status(path)==nw_path_status_satisfied;BOOL changed=m.pathAvailable!=available;m.pathAvailable=available;if(!available){m.generation++;m.busy=NO;[m disable];m.message.text=@"لا يوجد اتصال. الأداة متوقفة حتى ينجح التحقق.";}else if(changed&&m.active)[m verify];});nw_path_monitor_start(self.monitor);
  self.lastVolume=AVAudioSession.sharedInstance.outputVolume;
  [AVAudioSession.sharedInstance addObserver:self forKeyPath:@"outputVolume" options:NSKeyValueObservingOptionNew context:NULL];self.audioObserved=YES;
- self.timer=[NSTimer timerWithTimeInterval:1 repeats:YES block:^(__unused NSTimer *t){AZLicenseManager *m=weak;if(!m||!m.active)return;if(AZAuthorized.load()&&!AZLicenseCanRun()){[m disable];if(m.subscriptionDeadline>0&&AZMonotonic()>=m.subscriptionDeadline){[m showActivation];m.message.text=[m friendly:@"expired"];}}static double lastVerify=0;if(AZMonotonic()-lastVerify>=60){lastVerify=AZMonotonic();[m verify];}}];[[NSRunLoop mainRunLoop]addTimer:self.timer forMode:NSRunLoopCommonModes];
+ self.timer=[NSTimer timerWithTimeInterval:1 repeats:YES block:^(__unused NSTimer *t){AZLicenseManager *m=weak;if(!m||!m.active)return;[m installTapGestures];if(AZAuthorized.load()&&!AZLicenseCanRun()){[m disable];if(m.subscriptionDeadline>0&&AZMonotonic()>=m.subscriptionDeadline){[m showActivation];m.message.text=[m friendly:@"expired"];}}static double lastVerify=0;if(AZMonotonic()-lastVerify>=60){lastVerify=AZMonotonic();[m verify];}}];[[NSRunLoop mainRunLoop]addTimer:self.timer forMode:NSRunLoopCommonModes];
  self.active=UIApplication.sharedApplication.applicationState==UIApplicationStateActive;
  if(self.active)[self begin];
 }
 - (void)begin {if(!self.identity.savedCode.length)[self showActivation];else [self verify];}
-- (void)foreground:(NSNotification *)note {self.active=YES;self.presses=0;[self disable];[self begin];}
-- (void)background:(NSNotification *)note {self.active=NO;self.generation++;self.busy=NO;self.presses=0;[self disable];self.window.hidden=YES;}
+- (void)foreground:(NSNotification *)note {self.active=YES;[self installTapGestures];[self disable];[self begin];}
+- (void)background:(NSNotification *)note {self.active=NO;self.generation++;self.busy=NO;[self disable];self.window.hidden=YES;}
 - (void)disable {
  AZAuthorized.store(false);AZDeadline.store(0);
  [[AZLocationService sharedService]restoreDefault];
@@ -92,7 +92,7 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
    self.subscriptionDeadline=AZMonotonic()+[lease[@"expires_at"]doubleValue]-[lease[@"server_time"]doubleValue]-(AZMonotonic()-start);
    self.pendingCode=nil;AZDeadline.store(AZMonotonic()+ttl);AZAuthorized.store(true);
    [[AZAppManager sharedManager]initialize];
-   self.window.hidden=YES;self.message.text=@"تم التفعيل. اضغط خفض الصوت ثلاث مرات لإظهار الأداة.";
+   self.window.hidden=YES;self.message.text=@"تم التفعيل. انقر الشاشة ثلاث مرات متتالية لإظهار الأداة.";
    AZAuditLogFeature(@"license",@"VALID",@"Online verification succeeded; protected UI remains hidden");
   }];
  }];
@@ -103,15 +103,27 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
  if(show)[self showActivation];self.message.text=[self friendly:code];
  AZAuditLogFeature(@"license",@"OFF",code ?: @"network_or_configuration_error");
 }
-- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
- if(![keyPath isEqual:@"outputVolume"]){[super observeValueForKeyPath:keyPath ofObject:object change:change context:context];return;}
- dispatch_async(dispatch_get_main_queue(),^{
-  float volume=AVAudioSession.sharedInstance.outputVolume;BOOL down=volume<self.lastVolume;self.lastVolume=volume;
-  if(!down||!self.active)return;double now=AZMonotonic();if(now-self.lastPress>1.5)self.presses=0;self.lastPress=now;
-  if(++self.presses<3)return;self.presses=0;
-  if(AZLicenseCanRun())[[AZUIController sharedController]installWhenReady];
-  else if(self.identity.savedCode.length){[self showActivation];[self verify];}else [self showActivation];
- });
+- (void)windowVisible:(NSNotification *)note {[self installTapGestures];}
+- (void)installTapGestures {
+ NSMutableArray<UIWindow *> *windows=[NSMutableArray array];
+ if(@available(iOS 13.0,*)){
+  for(UIScene *scene in UIApplication.sharedApplication.connectedScenes)
+   if([scene isKindOfClass:UIWindowScene.class]&&scene.activationState==UISceneActivationStateForegroundActive)
+    [windows addObjectsFromArray:((UIWindowScene *)scene).windows];
+ }else [windows addObjectsFromArray:UIApplication.sharedApplication.windows];
+ for(UIWindow *window in windows){
+  if(window==self.window||[window isKindOfClass:AZLicenseWindow.class]||window.hidden||[self.tapWindows containsObject:window])continue;
+  UITapGestureRecognizer *tap=[[UITapGestureRecognizer alloc]initWithTarget:self action:@selector(tripleTapped:)];
+  tap.numberOfTapsRequired=3;tap.numberOfTouchesRequired=1;
+  tap.cancelsTouchesInView=NO;tap.delaysTouchesBegan=NO;tap.delaysTouchesEnded=NO;tap.delegate=self;
+  [window addGestureRecognizer:tap];[self.tapWindows addObject:window];
+ }
+}
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {return YES;}
+- (void)tripleTapped:(UITapGestureRecognizer *)gesture {
+ if(gesture.state!=UIGestureRecognizerStateRecognized||!self.active)return;
+ if(AZLicenseCanRun())[[AZUIController sharedController]installWhenReady];
+ else if(self.identity.savedCode.length){[self showActivation];[self verify];}else [self showActivation];
 }
 - (UIWindowScene *)scene API_AVAILABLE(ios(13.0)) {for(UIScene *s in UIApplication.sharedApplication.connectedScenes)if([s isKindOfClass:UIWindowScene.class]&&s.activationState==UISceneActivationStateForegroundActive)return (UIWindowScene *)s;return nil;}
 - (void)showActivation {
