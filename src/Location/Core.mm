@@ -7,17 +7,14 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <CoreLocation/CoreLocation.h>
-#import <MapKit/MapKit.h>
 #import <objc/runtime.h>
 #import <cmath>
-#import <QuartzCore/QuartzCore.h>
 
 #pragma mark - Constants
 
 static NSString * const kSchemaLocation = @"azgps.location/1";
 NSString * const AZEventLocationChanged = @"azgps.location.changed";
 NSString * const AZEventRuntimeStateChanged = @"azgps.runtime.changed";
-NSString * const AZEventRouteProgressChanged = @"azgps.route.progress.changed";
 NSString * const AZEventErrorOccurred = @"azgps.error.occurred";
 
 
@@ -33,19 +30,13 @@ static const void *kAZGPSProxyKey = &kAZGPSProxyKey;
 
 static CLLocation *AZGPS_buildFakeLocation(AZRuntimeState *state) {
     CLLocationCoordinate2D coordinate = CLLocationCoordinate2DMake(state.currentLatitude, state.currentLongitude);
-    CLLocationDirection course = -1.0;
-    CLLocationSpeed speed = 0.0;
-    if (state.movementActive) {
-        course = state.movementCourse;
-        speed = state.movementSpeed;
-    }
     return [[CLLocation alloc]
         initWithCoordinate:coordinate
         altitude:0.0
         horizontalAccuracy:5.0
         verticalAccuracy:5.0
-        course:course
-        speed:speed
+        course:-1.0
+        speed:0.0
         timestamp:[NSDate date]];
 }
 
@@ -582,12 +573,7 @@ static void AZGPSInstallRuntimeHooks(void) {
     switch (category) {
         case AZLogCore: return @"CORE";
         case AZLogLocation: return @"LOCATION";
-        case AZLogMovement: return @"MOVEMENT";
-        case AZLogRandom: return @"RANDOM";
-        case AZLogRoute: return @"ROUTE";
-        case AZLogWiFi: return @"WIFI";
         case AZLogDevice: return @"DEVICE";
-        case AZLogScheduler: return @"SCHEDULER";
         case AZLogStorage: return @"STORAGE";
         case AZLogUI: return @"UI";
     }
@@ -666,20 +652,7 @@ static void AZGPSInstallRuntimeHooks(void) {
 @property (nonatomic, assign, readwrite) double currentLatitude;
 @property (nonatomic, assign, readwrite) double currentLongitude;
 @property (nonatomic, assign, readwrite) AZLocationMode locationMode;
-@property (nonatomic, assign, readwrite) BOOL movementActive;
-@property (nonatomic, assign, readwrite) BOOL movementPaused;
-@property (nonatomic, assign, readwrite) double movementSpeed;
-@property (nonatomic, assign, readwrite) double movementCourse;
-@property (nonatomic, assign, readwrite) BOOL randomMovementActive;
-@property (nonatomic, assign, readwrite) double randomRadius;
-@property (nonatomic, assign, readwrite) BOOL routeActive;
-@property (nonatomic, assign, readwrite) BOOL routePaused;
-@property (nonatomic, assign, readwrite) double routeProgress;
-@property (nonatomic, assign, readwrite) double routeDistanceRemaining;
-@property (nonatomic, assign, readwrite) double routeSpeed;
-@property (nonatomic, copy, readwrite) NSString *activeWiFiProfileID;
 @property (nonatomic, copy, readwrite) NSString *activeDeviceProfileID;
-@property (nonatomic, assign, readwrite) BOOL schedulerActive;
 @property (nonatomic, copy, readwrite) NSString *lastAction;
 @property (nonatomic, copy, readwrite) NSString *lastError;
 @end
@@ -703,20 +676,7 @@ static void AZGPSInstallRuntimeHooks(void) {
         _currentLatitude = 0.0;
         _currentLongitude = 0.0;
         _locationMode = AZLocationModeDefault;
-        _movementActive = NO;
-        _movementPaused = NO;
-        _movementSpeed = 0.0;
-        _movementCourse = 0.0;
-        _randomMovementActive = NO;
-        _randomRadius = 0.0;
-        _routeActive = NO;
-        _routePaused = NO;
-        _routeProgress = 0.0;
-        _routeDistanceRemaining = 0.0;
-        _routeSpeed = 0.0;
-        _activeWiFiProfileID = @"";
         _activeDeviceProfileID = @"";
-        _schedulerActive = NO;
         _lastAction = @"Initialized";
         _lastError = @"";
     }
@@ -737,20 +697,7 @@ static void AZGPSInstallRuntimeHooks(void) {
             @"currentLatitude": @(self.currentLatitude),
             @"currentLongitude": @(self.currentLongitude),
             @"locationMode": @(self.locationMode),
-            @"movementActive": @(self.movementActive),
-            @"movementPaused": @(self.movementPaused),
-            @"movementSpeed": @(self.movementSpeed),
-            @"movementCourse": @(self.movementCourse),
-            @"randomMovementActive": @(self.randomMovementActive),
-            @"randomRadius": @(self.randomRadius),
-            @"routeActive": @(self.routeActive),
-            @"routePaused": @(self.routePaused),
-            @"routeProgress": @(self.routeProgress),
-            @"routeDistanceRemaining": @(self.routeDistanceRemaining),
-            @"routeSpeed": @(self.routeSpeed),
-            @"activeWiFiProfileID": self.activeWiFiProfileID ?: @"",
             @"activeDeviceProfileID": self.activeDeviceProfileID ?: @"",
-            @"schedulerActive": @(self.schedulerActive),
             @"lastAction": self.lastAction ?: @"",
             @"lastError": self.lastError ?: @""
         };
@@ -764,20 +711,7 @@ static void AZGPSInstallRuntimeHooks(void) {
         state.currentLatitude = 0.0;
         state.currentLongitude = 0.0;
         state.locationMode = AZLocationModeDefault;
-        state.movementActive = NO;
-        state.movementPaused = NO;
-        state.movementSpeed = 0.0;
-        state.movementCourse = 0.0;
-        state.randomMovementActive = NO;
-        state.randomRadius = 0.0;
-        state.routeActive = NO;
-        state.routePaused = NO;
-        state.routeProgress = 0.0;
-        state.routeDistanceRemaining = 0.0;
-        state.routeSpeed = 0.0;
-        state.activeWiFiProfileID = @"";
         state.activeDeviceProfileID = @"";
-        state.schedulerActive = NO;
         state.lastAction = @"Environment reset";
         state.lastError = @"";
     }];
@@ -819,7 +753,6 @@ static void AZGPSInstallRuntimeHooks(void) {
         case AZErrorCodeConflict: return @"Another operation is active.";
         case AZErrorCodeStorageError: return @"Storage error.";
         case AZErrorCodeUnsupportedVersion: return @"Unsupported version.";
-        case AZErrorCodeRouteError: return @"Route error.";
     }
     return @"Unknown error.";
 }
@@ -967,183 +900,15 @@ static NSString * const kLastLonKey = @"azgps.lastLongitude";
 
 
 
-@interface AZAppManager ()
-@property(nonatomic,strong) NSTimer *motionTimer;
-@property(nonatomic,strong) NSTimer *scheduleTimer;
-@property(nonatomic,strong) MKDirections *directions;
-@property(nonatomic) NSUInteger generation;
-@property(nonatomic,strong) NSArray *points;
-@property(nonatomic) NSUInteger segment;
-@property(nonatomic) double segmentProgress;
-@property(nonatomic) double speed;
-@property(nonatomic) double radius;
-@property(nonatomic) double interval;
-@property(nonatomic) double distanceTravelled;
-@property(nonatomic) double totalDistance;
-@property(nonatomic) CLLocationCoordinate2D anchor;
-@property(nonatomic) CLLocationCoordinate2D randomTarget;
-@property(nonatomic) BOOL random;
-@property(nonatomic) BOOL paused;
-@property(nonatomic) CFTimeInterval lastTick;
-@end
-
 @implementation AZAppManager
 + (instancetype)sharedManager { static AZAppManager *instance; static dispatch_once_t once; dispatch_once(&once, ^{ instance=[self new]; }); return instance; }
-- (void)initialize {
-    AZGPSInstallRuntimeHooks();
-    AZInstallIdentityHook();
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(background:) name:UIApplicationDidEnterBackgroundNotification object:nil];
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(foreground:) name:UIApplicationDidBecomeActiveNotification object:nil];
-    [self startScheduler];
-}
-- (void)background:(NSNotification *)note { self.lastTick=0; }
-- (void)foreground:(NSNotification *)note { self.lastTick=0; [self evaluateSchedules]; }
-- (AZError *)invalid { return [AZError errorWithCode:AZErrorCodeInvalidInput technical:@"Invalid simulation parameters"]; }
-- (AZError *)unavailable { return [AZError errorWithCode:AZErrorCodeNotAvailable technical:@"Feature unavailable"]; }
-- (void)update:(azgps::Coordinate)p speed:(double)s course:(double)course {
-    [[AZRuntimeState sharedState] performUpdate:^(id<AZRuntimeStateMutable> state) {
-        state.locationEnabled=YES; state.currentLatitude=p.latitude; state.currentLongitude=p.longitude;
-        state.locationMode=self.random?AZLocationModeRandom:AZLocationModeRoute;
-        state.movementActive=YES;state.movementPaused=self.paused;state.movementSpeed=s;state.movementCourse=course;
-        state.randomMovementActive=self.random;state.randomRadius=self.radius;state.routeActive=!self.random;
-        state.routePaused=self.paused;state.routeProgress=self.totalDistance>0?MIN(1.0,self.distanceTravelled/self.totalDistance):0;
-        state.routeDistanceRemaining=MAX(0.0,self.totalDistance-self.distanceTravelled);state.routeSpeed=self.speed;
-        state.lastAction=self.random?@"Random update":@"Route update";state.lastError=@"";
-    }];
-}
-- (AZError *)stopMovement {
-    ++self.generation;[self.directions cancel];self.directions=nil;
-    [self.motionTimer invalidate];self.motionTimer=nil;self.points=nil;self.paused=NO;self.random=NO;
-    [[AZRuntimeState sharedState] performUpdate:^(id<AZRuntimeStateMutable> state) {
-        state.movementActive=NO;state.movementPaused=NO;state.movementSpeed=0;state.movementCourse=-1;
-        state.randomMovementActive=NO;state.routeActive=NO;state.routePaused=NO;
-        state.routeSpeed=0;state.routeProgress=0;state.routeDistanceRemaining=0;
-        state.locationMode=state.locationEnabled?AZLocationModeStatic:AZLocationModeDefault;state.lastAction=@"Movement stopped";
-    }];return [AZError success];
-}
-- (void)stopAllFeatures {
-    [self stopMovement];[self.scheduleTimer invalidate];self.scheduleTimer=nil;
-    [[AZRuntimeState sharedState] performUpdate:^(id<AZRuntimeStateMutable> state){state.schedulerActive=NO;}];
-    [[AZLocationService sharedService] restoreDefault];
-}
+- (void)initialize { AZGPSInstallRuntimeHooks(); AZInstallIdentityHook(); }
+- (AZError *)invalid { return [AZError errorWithCode:AZErrorCodeInvalidInput technical:@"Invalid parameters"]; }
 - (AZError *)activateStaticLocationWithLatitude:(double)lat longitude:(double)lon {
     if (!azgps::Coordinate{lat,lon}.isValid()) return [self invalid];
-    [self stopMovement];return [[AZLocationService sharedService] setLocationWithLatitude:lat longitude:lon];
+    return [[AZLocationService sharedService] setLocationWithLatitude:lat longitude:lon];
 }
-- (AZError *)restoreDefaultLocation { [self stopAllFeatures];return [AZError success]; }
-- (AZError *)pauseMovement {
-    if (!self.motionTimer)return [self unavailable];self.paused=YES;
-    [[AZRuntimeState sharedState] performUpdate:^(id<AZRuntimeStateMutable> state){state.movementPaused=YES;state.routePaused=state.routeActive;}];return [AZError success];
-}
-- (AZError *)resumeMovement {
-    if (!self.motionTimer)return [self unavailable];self.paused=NO;self.lastTick=0;
-    [[AZRuntimeState sharedState] performUpdate:^(id<AZRuntimeStateMutable> state){state.movementPaused=NO;state.routePaused=NO;}];return [AZError success];
-}
-- (void)startTimer {
-    self.lastTick=0;
-    self.motionTimer=[NSTimer timerWithTimeInterval:self.interval repeats:YES block:^(__unused NSTimer *timer){[self tick];}];
-    [[NSRunLoop mainRunLoop] addTimer:self.motionTimer forMode:NSRunLoopCommonModes];
-}
-- (azgps::Coordinate)point:(NSDictionary *)point { return {[point[@"lat"] doubleValue],[point[@"lon"] doubleValue]}; }
-- (void)tick {
-    CFTimeInterval now=CACurrentMediaTime();double dt=self.lastTick>0?MIN(2.0,now-self.lastTick):self.interval;self.lastTick=now;
-    if(self.paused || UIApplication.sharedApplication.applicationState==UIApplicationStateBackground)return;
-    AZRuntimeState *state=[AZRuntimeState sharedState];azgps::Coordinate current={state.currentLatitude,state.currentLongitude};
-    if(self.random) {
-        azgps::Coordinate target={self.randomTarget.latitude,self.randomTarget.longitude};
-        double distance=azgps::haversineDistanceMeters(current,target);
-        if(distance<1) { double bearing=arc4random_uniform(360000)/1000.0;double radius=sqrt(arc4random_uniform(1000000)/1000000.0)*self.radius;
-            target=azgps::destinationPoint({self.anchor.latitude,self.anchor.longitude},bearing,radius);self.randomTarget=CLLocationCoordinate2DMake(target.latitude,target.longitude);distance=azgps::haversineDistanceMeters(current,target);}
-        double step=MIN(distance,self.speed*dt);azgps::Coordinate next=azgps::interpolateGreatCircle(current,target,distance>0?step/distance:1);
-        [self update:next speed:dt>0?step/dt:0 course:azgps::initialBearingDegrees(current,target)];return;
-    }
-    double budget=self.speed*dt;
-    while(self.segment+1<self.points.count) {
-        azgps::Coordinate start=[self point:self.points[self.segment]],end=[self point:self.points[self.segment+1]];
-        double length=azgps::haversineDistanceMeters(start,end),remaining=MAX(0.0,length-self.segmentProgress);
-        double step=MIN(budget,remaining);self.segmentProgress+=step;self.distanceTravelled+=step;budget-=step;
-        current=azgps::interpolateGreatCircle(start,end,length>0?self.segmentProgress/length:1);
-        [self update:current speed:self.speed course:azgps::initialBearingDegrees(start,end)];
-        if(remaining<=step+0.001){self.segment++;self.segmentProgress=0;}else break;
-        if(budget<=0)break;
-    }
-    if(self.segment+1>=self.points.count){[self stopMovement];}
-}
-- (AZError *)startRouteWithWaypoints:(NSArray *)points speed:(double)speed {
-    if(points.count<2 || !isfinite(speed) || speed<=0 || speed>80)return [self invalid];
-    double total=0;for(NSUInteger i=0;i<points.count;i++){
-        NSDictionary *p=points[i];if(![p isKindOfClass:NSDictionary.class] || ![p[@"lat"] isKindOfClass:NSNumber.class] || ![p[@"lon"] isKindOfClass:NSNumber.class] || ![self point:p].isValid())return [self invalid];
-        if(i)total+=azgps::haversineDistanceMeters([self point:points[i-1]],[self point:p]);
-    }
-    if(total<1)return [self invalid];
-    [self stopMovement];self.points=[points copy];self.speed=speed;self.interval=1;self.segment=0;self.segmentProgress=0;self.distanceTravelled=0;self.totalDistance=total;
-    [self update:[self point:points.firstObject] speed:speed course:-1];[self startTimer];
-    [[NSUserDefaults standardUserDefaults] setObject:@{@"type":@"route",@"points":points,@"speed":@(speed)} forKey:@"AZ.GPS.lastRoute"];
-    [[NSNotificationCenter defaultCenter] postNotificationName:@"AZ.GPS.routePreview" object:points];
-    return [AZError success];
-}
-- (void)prepareRouteFrom:(NSDictionary *)from to:(NSDictionary *)to completion:(void (^)(NSArray *,NSError *))completion {
-    [self stopMovement];NSUInteger generation=self.generation;
-    MKDirectionsRequest *request=[MKDirectionsRequest new];
-    azgps::Coordinate a=[self point:from],b=[self point:to];
-    request.source=[[MKMapItem alloc]initWithPlacemark:[[MKPlacemark alloc]initWithCoordinate:CLLocationCoordinate2DMake(a.latitude,a.longitude)]];
-    request.destination=[[MKMapItem alloc]initWithPlacemark:[[MKPlacemark alloc]initWithCoordinate:CLLocationCoordinate2DMake(b.latitude,b.longitude)]];
-    request.transportType=MKDirectionsTransportTypeWalking;self.directions=[[MKDirections alloc]initWithRequest:request];
-    [self.directions calculateDirectionsWithCompletionHandler:^(MKDirectionsResponse *response,NSError *error){
-        dispatch_async(dispatch_get_main_queue(),^{
-            if(generation!=self.generation)return;self.directions=nil;MKRoute *route=response.routes.firstObject;
-            if(!route || error){completion(@[from,to],error ?: [NSError errorWithDomain:@"AZ.GPS" code:1 userInfo:@{NSLocalizedDescriptionKey:@"لم يتوفر مسار من الخرائط"}]);return;}
-            NSUInteger count=route.polyline.pointCount;CLLocationCoordinate2D *coordinates=(CLLocationCoordinate2D *)calloc(count,sizeof(CLLocationCoordinate2D));
-            [route.polyline getCoordinates:coordinates range:NSMakeRange(0,count)];NSMutableArray *points=[NSMutableArray new];
-            for(NSUInteger i=0;i<count;i++)[points addObject:@{@"lat":@(coordinates[i].latitude),@"lon":@(coordinates[i].longitude)}];free(coordinates);
-            completion(points,nil);
-        });
-    }];
-}
-- (AZError *)startRandomWithRadius:(double)radius speed:(double)speed interval:(double)interval {
-    if(!isfinite(radius)||radius<1||radius>10000||!isfinite(speed)||speed<=0||speed>80||!isfinite(interval)||interval<0.25||interval>2)return [self invalid];
-    AZRuntimeState *state=[AZRuntimeState sharedState];if(!state.locationEnabled)return [self invalid];
-    CLLocationCoordinate2D anchor=CLLocationCoordinate2DMake(state.currentLatitude,state.currentLongitude);
-    [self stopMovement];self.random=YES;self.anchor=anchor;self.randomTarget=anchor;self.radius=radius;self.speed=speed;self.interval=interval;
-    self.totalDistance=0;self.distanceTravelled=0;[self update:azgps::Coordinate{anchor.latitude,anchor.longitude} speed:0 course:-1];[self startTimer];
-    [[NSUserDefaults standardUserDefaults]setObject:@{@"type":@"random",@"lat":@(anchor.latitude),@"lon":@(anchor.longitude),@"radius":@(radius),@"speed":@(speed),@"interval":@(interval)} forKey:@"AZ.GPS.lastRandom"];
-    return [AZError success];
-}
-- (AZError *)startRandomMovementWithRadius:(double)radius {return [self startRandomWithRadius:radius speed:1.4 interval:1];}
-- (AZError *)startMovementFromLatitude:(double)a longitude:(double)b toLatitude:(double)c longitude2:(double)d speed:(double)s {return [self startRouteWithWaypoints:@[@{@"lat":@(a),@"lon":@(b)},@{@"lat":@(c),@"lon":@(d)}] speed:s];}
-- (NSArray *)schedules {return [[NSUserDefaults standardUserDefaults]arrayForKey:@"AZ.GPS.schedules"] ?: @[];}
-- (void)deleteSchedule:(NSString *)identifier {
-    NSMutableArray *entries=[[self schedules]mutableCopy];NSIndexSet *indexes=[entries indexesOfObjectsPassingTest:^BOOL(NSDictionary *e,__unused NSUInteger i,__unused BOOL *stop){return [e[@"id"] isEqual:identifier];}];
-    [entries removeObjectsAtIndexes:indexes];[[NSUserDefaults standardUserDefaults]setObject:entries forKey:@"AZ.GPS.schedules"];
-}
-- (void)addDailyScheduleAt:(NSInteger)minute weekdays:(NSArray *)days type:(NSString *)type {
-    if(minute<0||minute>=1440)return;
-    NSDictionary *plan=nil;NSUserDefaults *defaults=NSUserDefaults.standardUserDefaults;
-    if([type isEqual:@"location"]){AZRuntimeState *state=AZRuntimeState.sharedState;plan=@{@"type":type,@"lat":@(state.currentLatitude),@"lon":@(state.currentLongitude)};}
-    else plan=[defaults dictionaryForKey:[type isEqual:@"route"]?@"AZ.GPS.lastRoute":@"AZ.GPS.lastRandom"];
-    if(!plan)return;NSMutableArray *entries=[[self schedules]mutableCopy];[entries addObject:@{@"id":NSUUID.UUID.UUIDString,@"minute":@(minute),@"days":days,@"plan":plan}];
-    [defaults setObject:entries forKey:@"AZ.GPS.schedules"];[self startScheduler];
-}
-- (AZError *)startScheduler {
-    if(!self.scheduleTimer){self.scheduleTimer=[NSTimer timerWithTimeInterval:10 repeats:YES block:^(__unused NSTimer *timer){[self evaluateSchedules];}];[[NSRunLoop mainRunLoop]addTimer:self.scheduleTimer forMode:NSRunLoopCommonModes];}
-    [[AZRuntimeState sharedState]performUpdate:^(id<AZRuntimeStateMutable>state){state.schedulerActive=YES;}];return [AZError success];
-}
-- (void)evaluateSchedules {
-    if(UIApplication.sharedApplication.applicationState!=UIApplicationStateActive)return;
-    NSDate *now=NSDate.date;NSDateComponents *parts=[NSCalendar.currentCalendar components:NSCalendarUnitYear|NSCalendarUnitMonth|NSCalendarUnitDay|NSCalendarUnitWeekday|NSCalendarUnitHour|NSCalendarUnitMinute fromDate:now];
-    for(NSDictionary *entry in [self schedules]){
-        unsigned mask=0;for(NSNumber *day in entry[@"days"]){NSInteger n=day.integerValue;if(n>=1&&n<=7)mask|=1u<<(n-1);}
-        if(!azgps::scheduleDue((int)[entry[@"minute"]integerValue],(int)(parts.hour*60+parts.minute),(int)parts.weekday,mask,false))continue;
-        NSString *key=[@"AZ.GPS.fired." stringByAppendingString:entry[@"id"]];
-        NSString *date=[NSString stringWithFormat:@"%ld-%ld-%ld",(long)parts.year,(long)parts.month,(long)parts.day];
-        if(!azgps::scheduleDue((int)[entry[@"minute"]integerValue],(int)(parts.hour*60+parts.minute),(int)parts.weekday,mask,[[NSUserDefaults.standardUserDefaults stringForKey:key]isEqual:date]))continue;
-        [NSUserDefaults.standardUserDefaults setObject:date forKey:key];NSDictionary *plan=entry[@"plan"];NSString *type=plan[@"type"];
-        if([type isEqual:@"route"])[self startRouteWithWaypoints:plan[@"points"] speed:[plan[@"speed"]doubleValue]];
-        else { [self activateStaticLocationWithLatitude:[plan[@"lat"]doubleValue] longitude:[plan[@"lon"]doubleValue]];
-            if([type isEqual:@"random"])[self startRandomWithRadius:[plan[@"radius"]doubleValue] speed:[plan[@"speed"]doubleValue] interval:[plan[@"interval"]doubleValue]]; }
-    }
-}
-- (AZError *)setActiveWiFiProfileWithID:(NSString *)p {return [self unavailable];}
+- (AZError *)restoreDefaultLocation { return [[AZLocationService sharedService] restoreDefault]; }
 - (AZError *)setActiveDeviceProfileWithID:(NSString *)p {
     if(!p.length)AZRestoreIdentity();
     else if(!AZSetIdentity(p))return [self invalid];

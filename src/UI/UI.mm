@@ -7,11 +7,6 @@
 #import <MapKit/MapKit.h>
 #import <CoreLocation/CoreLocation.h>
 #import <cmath>
-#import <objc/runtime.h>
-
-static char AZBaseFrameKey, AZButtonKey;
-static NSString *const AZLayoutPrefsKey=@"AZ.GPS.ui.layout";
-static NSString *const AZAppearancePrefsKey=@"AZ.GPS.ui.appearance";
 
 #pragma mark - Root
 
@@ -97,13 +92,9 @@ static NSString *const AZAppearancePrefsKey=@"AZ.GPS.ui.appearance";
     UILabel *_coordLabel;
     UILabel *_statusLabel;
     UISwitch *_locationSwitch;
-    UISwitch *_photoSwitch;
 
     CLLocationCoordinate2D _selectedCoordinate;
     BOOL _hasCoordinate;
-    NSTimer *_statusTimer;
-    NSMutableArray<NSDictionary *> *_customButtons;
-    MKPointAnnotation *_movementPin;
 }
 
 + (instancetype)sharedController {
@@ -173,8 +164,6 @@ static NSString *const AZAppearancePrefsKey=@"AZ.GPS.ui.appearance";
     _overlayWindow = w;
 
     [self buildFloatingButton:root.view];
-    _statusTimer=[NSTimer timerWithTimeInterval:1 repeats:YES block:^(__unused NSTimer *timer){[self refreshStatus];}];
-    [[NSRunLoop mainRunLoop]addTimer:_statusTimer forMode:NSRunLoopCommonModes];
 }
 
 #pragma mark - Helpers
@@ -240,8 +229,6 @@ static NSString *const AZAppearancePrefsKey=@"AZ.GPS.ui.appearance";
 
     [root addSubview:b];
     _floatingButton = b;
-    [b addGestureRecognizer:[[UILongPressGestureRecognizer alloc]initWithTarget:self action:@selector(customizationLongPress:)]];
-    [self applyFloatingPreferences];
 }
 
 - (void)dragFloating:(UIPanGestureRecognizer *)g {
@@ -257,7 +244,6 @@ static NSString *const AZAppearancePrefsKey=@"AZ.GPS.ui.appearance";
     c.y = MAX(hh, MIN(CGRectGetHeight(p.bounds)-hh, c.y));
     v.center = c;
     [g setTranslation:CGPointZero inView:p];
-    if(g.state==UIGestureRecognizerStateEnded){NSMutableDictionary *prefs=[[self appearancePreferences]mutableCopy];prefs[@"x"]=@(v.center.x/MAX(1.0,CGRectGetWidth(p.bounds)));prefs[@"y"]=@(v.center.y/MAX(1.0,CGRectGetHeight(p.bounds)));[NSUserDefaults.standardUserDefaults setObject:prefs forKey:AZAppearancePrefsKey];}
 }
 
 #pragma mark - Panel
@@ -286,7 +272,7 @@ static NSString *const AZAppearancePrefsKey=@"AZ.GPS.ui.appearance";
     panel.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.08].CGColor;
     panel.showsVerticalScrollIndicator = NO;
 
-    UIView *content = [[UIView alloc] initWithFrame:CGRectMake(0,0,pw,1125)];
+    UIView *content = [[UIView alloc] initWithFrame:CGRectMake(0,0,pw,875)];
     [panel addSubview:content];
     panel.contentSize = content.bounds.size;
 
@@ -408,47 +394,10 @@ static NSString *const AZAppearancePrefsKey=@"AZ.GPS.ui.appearance";
     [content addSubview:_coordLabel];
     [self refreshCoordinate];
 
-    // Route/random/schedule
-    UIButton *route=[self button:@"\u2301  \u0645\u0633\u0627\u0631" frame:CGRectMake(margin,563,third,50) tint:teal];
-    UIButton *random=[self button:@"\u2928  \u0639\u0634\u0648\u0627\u0626\u064A" frame:CGRectMake(margin+third+gap,563,third,50) tint:purple];
-    UIButton *schedule=[self button:@"\u25F7  \u0627\u0644\u062C\u062F\u0648\u0644\u0629" frame:CGRectMake(margin+(third+gap)*2,563,third,50) tint:cyan];
-    [route addTarget:self action:@selector(routeTapped) forControlEvents:UIControlEventTouchUpInside];
-    [random addTarget:self action:@selector(randomTapped) forControlEvents:UIControlEventTouchUpInside];
-    [schedule addTarget:self action:@selector(scheduleTapped) forControlEvents:UIControlEventTouchUpInside];
-    
-    [content addSubview:route]; [content addSubview:random]; [content addSubview:schedule];
-
-    // Alternate photo card
-    UIView *photoCard=[self card:CGRectMake(margin,625,inner,112)];
-    [content addSubview:photoCard];
-    UILabel *photoTitle=[self label:@"\U0001F4F7  \u0635\u0648\u0631\u0629 \u0628\u062F\u064A\u0644\u0629" frame:CGRectMake(16,8,180,38) size:17 bold:NO];
-    [photoCard addSubview:photoTitle];
-    _photoSwitch=[[UISwitch alloc] initWithFrame:CGRectMake(inner-68,12,55,32)];
-    _photoSwitch.enabled=NO;
-    [photoCard addSubview:_photoSwitch];
-
-    CGFloat pGap=8, pW=(inner-32-pGap*2)/3.0;
-    UIButton *flip=[self button:@"\u0639\u0643\u0633" frame:CGRectMake(16,57,pW,38) tint:teal];
-    UIButton *upload=[self button:@"\u0631\u0641\u0639" frame:CGRectMake(16+pW+pGap,57,pW,38) tint:orange];
-    UIButton *del=[self button:@"\u062D\u0630\u0641" frame:CGRectMake(16+(pW+pGap)*2,57,pW,38) tint:red];
-    [flip addTarget:self action:@selector(notImplemented) forControlEvents:UIControlEventTouchUpInside];
-    [upload addTarget:self action:@selector(notImplemented) forControlEvents:UIControlEventTouchUpInside];
-    [del addTarget:self action:@selector(notImplemented) forControlEvents:UIControlEventTouchUpInside];
-    for (UIButton *pending in @[flip,upload,del]) { pending.enabled=NO; pending.alpha=0.4; }
-    [photoCard addSubview:flip]; [photoCard addSubview:upload]; [photoCard addSubview:del];
-
-    // Bluetooth / WiFi
     CGFloat half=(inner-gap)/2.0;
-    UIButton *bt=[self button:@"\u25C9))) \u0627\u0644\u0628\u0644\u0648\u062A\u0648\u062B" frame:CGRectMake(margin,750,half,50)
-                        tint:[UIColor colorWithRed:.1 green:.58 blue:.9 alpha:1]];
-    UIButton *wifi=[self button:@"\u2301  \u0627\u0644\u0648\u0627\u064A \u0641\u0627\u064A" frame:CGRectMake(margin+half+gap,750,half,50) tint:cyan];
-    [bt addTarget:self action:@selector(bluetoothTapped) forControlEvents:UIControlEventTouchUpInside];
-    [wifi addTarget:self action:@selector(wifiTapped) forControlEvents:UIControlEventTouchUpInside];
-    bt.enabled=NO;wifi.enabled=NO;bt.alpha=0.4;wifi.alpha=0.4;
-    [content addSubview:bt]; [content addSubview:wifi];
 
     // Device card
-    UIView *device=[self card:CGRectMake(margin,812,inner,66)];
+    UIView *device=[self card:CGRectMake(margin,563,inner,66)];
     [content addSubview:device];
     UILabel *deviceTitle=[self label:@"\U0001F4F1  \u0645\u0639\u0631\u0641 \u0627\u0644\u062C\u0647\u0627\u0632" frame:CGRectMake(15,10,145,42) size:16 bold:NO];
     [device addSubview:deviceTitle];
@@ -466,36 +415,32 @@ static NSString *const AZAppearancePrefsKey=@"AZ.GPS.ui.appearance";
     }
 
     // Support / shop
-    UIButton *shop=[self button:@"\U0001F6D2  \u0634\u0631\u0627\u0621 \u0643\u0648\u062F" frame:CGRectMake(margin,892,half,52) tint:orange];
-    UIButton *chat=[self button:@"\u25CF  \u0627\u0644\u062F\u0639\u0645 \u0627\u0644\u0641\u0646\u064A" frame:CGRectMake(margin+half+gap,892,half,52) tint:cyan];
+    UIButton *shop=[self button:@"\U0001F6D2  \u0634\u0631\u0627\u0621 \u0643\u0648\u062F" frame:CGRectMake(margin,643,half,52) tint:orange];
+    UIButton *chat=[self button:@"\u25CF  \u0627\u0644\u062F\u0639\u0645 \u0627\u0644\u0641\u0646\u064A" frame:CGRectMake(margin+half+gap,643,half,52) tint:cyan];
     [shop addTarget:self action:@selector(showSupport) forControlEvents:UIControlEventTouchUpInside];
     [chat addTarget:self action:@selector(showSupport) forControlEvents:UIControlEventTouchUpInside];
     shop.enabled=NO;chat.enabled=NO;shop.alpha=0.4;chat.alpha=0.4;
     [content addSubview:shop]; [content addSubview:chat];
 
     // Bottom controls
-    UIButton *stop=[self button:@"\u23F9  \u0625\u064A\u0642\u0627\u0641 \u0627\u0644\u0643\u0644" frame:CGRectMake(margin,958,third,50) tint:red];
-    UIButton *hide=[self button:@"\u25C9\u0338  \u0625\u062E\u0641\u0627\u0621 \u0627\u0644\u0623\u062F\u0627\u0629" frame:CGRectMake(margin+third+gap,958,third,50)
+    UIButton *stop=[self button:@"\u23F9  \u0625\u064A\u0642\u0627\u0641 \u0627\u0644\u0643\u0644" frame:CGRectMake(margin,715,half,50) tint:red];
+    UIButton *hide=[self button:@"\u25C9\u0338  \u0625\u062E\u0641\u0627\u0621 \u0627\u0644\u0623\u062F\u0627\u0629" frame:CGRectMake(margin+half+gap,715,half,50)
                            tint:[UIColor colorWithWhite:.65 alpha:1]];
-    UIButton *custom=[self button:@"\u2637  \u062A\u062E\u0635\u064A\u0635" frame:CGRectMake(margin+(third+gap)*2,958,third,50) tint:cyan];
     [stop addTarget:self action:@selector(stopAll) forControlEvents:UIControlEventTouchUpInside];
     [hide addTarget:self action:@selector(closePanel) forControlEvents:UIControlEventTouchUpInside];
-    [custom addTarget:self action:@selector(showCustomization) forControlEvents:UIControlEventTouchUpInside];
     
-    [content addSubview:stop]; [content addSubview:hide]; [content addSubview:custom];
+    [content addSubview:stop]; [content addSubview:hide];
 
-    UIButton *logs=[self button:@"Logs" frame:CGRectMake(margin,1018,inner,46)
+    UIButton *logs=[self button:@"Logs" frame:CGRectMake(margin,779,inner,46)
                            tint:[UIColor colorWithRed:.42 green:.46 blue:.52 alpha:1]];
     [logs addTarget:self action:@selector(showAuditLogs) forControlEvents:UIControlEventTouchUpInside];
     [content addSubview:logs];
 
-    _statusLabel=[self label:@"DEFAULT" frame:CGRectMake(margin,1074,inner,20) size:11 bold:NO];
+    _statusLabel=[self label:@"DEFAULT" frame:CGRectMake(margin,835,inner,20) size:11 bold:NO];
     _statusLabel.textAlignment=NSTextAlignmentCenter;
     _statusLabel.textColor=[UIColor colorWithWhite:1 alpha:.45];
     [content addSubview:_statusLabel];
 
-    [self registerCustomization];
-    [self applyCustomizedLayout];
     [self refreshStatus];
 }
 
@@ -909,155 +854,6 @@ static NSString *const AZAppearancePrefsKey=@"AZ.GPS.ui.appearance";
     while(vc.presentedViewController)vc=vc.presentedViewController;
     return vc;
 }
-- (void)showMovementControls {
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"الحركة الحالية" message:@"أوقف الحركة أو استأنفها، أو ابدأ وضعًا جديدًا." preferredStyle:UIAlertControllerStyleAlert];
-    AZAppManager *manager=AZAppManager.sharedManager;
-    [alert addAction:[UIAlertAction actionWithTitle:@"إيقاف مؤقت" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action){[manager pauseMovement];[self refreshStatus];}]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"استئناف" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action){[manager resumeMovement];[self refreshStatus];}]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"إيقاف الحركة" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action){[manager stopMovement];[self refreshStatus];}]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"مسار جديد" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action){[self configureRoute];}]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"عشوائي جديد" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action){[self configureRandom];}]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
-    [[self presenter]presentViewController:alert animated:YES completion:nil];
-}
-- (void)routeTapped {
-    if(AZRuntimeState.sharedState.movementActive){[self showMovementControls];return;}
-    [self configureRoute];
-}
-- (void)configureRoute {
-    if(!_hasCoordinate){[self alert:@"حدد الوجهة على الخريطة أو من المحفوظات أولًا."];return;}
-    CLLocationCoordinate2D destination=_selectedCoordinate;
-    AZRuntimeState *state=AZRuntimeState.sharedState;
-    CLLocationCoordinate2D current=CLLocationCoordinate2DMake(state.currentLatitude,state.currentLongitude);
-    BOOL distinct=state.locationEnabled && fabs(current.latitude-destination.latitude)+fabs(current.longitude-destination.longitude)>0.00001;
-    if(distinct){[self routeFrom:current to:destination];return;}
-    AZRequestRealLocation(^(CLLocation *location,NSError *error){
-        if(!location){[self alert:error.localizedDescription];return;}
-        [self routeFrom:location.coordinate to:destination];
-    });
-}
-- (void)routeFrom:(CLLocationCoordinate2D)source to:(CLLocationCoordinate2D)destination {
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"إعداد المسار"
-        message:[NSString stringWithFormat:@"البداية: %.5f, %.5f\nالوجهة: %.5f, %.5f\nالسرعة كم/س",source.latitude,source.longitude,destination.latitude,destination.longitude]
-        preferredStyle:UIAlertControllerStyleAlert];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *field){field.text=@"5";field.keyboardType=UIKeyboardTypeDecimalPad;}];
-    [alert addAction:[UIAlertAction actionWithTitle:@"عرض المسار" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action){
-        double speed=[alert.textFields.firstObject.text doubleValue]/3.6;
-        if(!isfinite(speed)||speed<=0||speed>80){[self alert:@"أدخل سرعة بين 0 و288 كم/س."];return;}
-        NSDictionary *from=@{@"lat":@(source.latitude),@"lon":@(source.longitude)},*to=@{@"lat":@(destination.latitude),@"lon":@(destination.longitude)};
-        [AZAppManager.sharedManager prepareRouteFrom:from to:to completion:^(NSArray *points,NSError *error){[self previewRoute:points speed:speed fallback:error!=nil];}];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
-    [[self presenter]presentViewController:alert animated:YES completion:nil];
-}
-- (void)drawRoute:(NSArray *)points {
-    if(!_mapView)return;
-    [_mapView removeOverlays:_mapView.overlays];
-    NSUInteger count=points.count;if(count<2)return;
-    CLLocationCoordinate2D *coordinates=(CLLocationCoordinate2D *)calloc(count,sizeof(CLLocationCoordinate2D));
-    for(NSUInteger i=0;i<count;i++)coordinates[i]=CLLocationCoordinate2DMake([points[i][@"lat"]doubleValue],[points[i][@"lon"]doubleValue]);
-    MKPolyline *line=[MKPolyline polylineWithCoordinates:coordinates count:count];free(coordinates);
-    [_mapView addOverlay:line];
-    [_mapView setVisibleMapRect:line.boundingMapRect edgePadding:UIEdgeInsetsMake(25,25,25,25) animated:YES];
-}
-- (MKOverlayRenderer *)mapView:(MKMapView *)mapView rendererForOverlay:(id<MKOverlay>)overlay {
-    MKPolylineRenderer *renderer=[[MKPolylineRenderer alloc]initWithOverlay:overlay];renderer.strokeColor=UIColor.blueColor;renderer.lineWidth=4;return renderer;
-}
-- (void)previewRoute:(NSArray *)points speed:(double)speed fallback:(BOOL)fallback {
-    [self drawRoute:points];double distance=0;
-    for(NSUInteger i=1;i<points.count;i++){
-        CLLocation *a=[[CLLocation alloc]initWithLatitude:[points[i-1][@"lat"]doubleValue] longitude:[points[i-1][@"lon"]doubleValue]];
-        CLLocation *b=[[CLLocation alloc]initWithLatitude:[points[i][@"lat"]doubleValue] longitude:[points[i][@"lon"]doubleValue]];
-        distance+=[a distanceFromLocation:b];
-    }
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:fallback?@"لم يتوفر مسار من الخرائط":@"معاينة المسار"
-        message:[NSString stringWithFormat:@"%@\nالمسافة: %.0f متر\nالمدة: %.1f دقيقة",fallback?@"يمكنك اختيار الحركة المباشرة بين النقطتين.":@"المسار جاهز.",distance,distance/speed/60]
-        preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:fallback?@"بدء حركة مباشرة":@"بدء المسار" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action){
-        AZError *result=[AZAppManager.sharedManager startRouteWithWaypoints:points speed:speed];
-        if(!result.isSuccess)[self alert:result.humanReadableMessage];[self refreshStatus];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:^(__unused UIAlertAction *action){[AZAppManager.sharedManager stopMovement];[_mapView removeOverlays:_mapView.overlays];}]];
-    [[self presenter]presentViewController:alert animated:YES completion:nil];
-}
-- (void)randomTapped {
-    if(AZRuntimeState.sharedState.movementActive){[self showMovementControls];return;}[self configureRandom];
-}
-- (void)configureRandom {
-    if(!AZRuntimeState.sharedState.locationEnabled){
-        AZRequestRealLocation(^(CLLocation *location,NSError *error){
-            if(!location){[self alert:error.localizedDescription];return;}
-            [AZAppManager.sharedManager activateStaticLocationWithLatitude:location.coordinate.latitude longitude:location.coordinate.longitude];
-            [self configureRandom];
-        });return;
-    }
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"الحركة العشوائية" message:@"حول موقع AZ.GPS الحالي. نصف القطر بالمتر، السرعة كم/س، التحديث بالثواني." preferredStyle:UIAlertControllerStyleAlert];
-    for(NSString *value in @[@"100",@"5",@"1"])[alert addTextFieldWithConfigurationHandler:^(UITextField *field){field.text=value;field.keyboardType=UIKeyboardTypeDecimalPad;}];
-    [alert addAction:[UIAlertAction actionWithTitle:@"بدء" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action){
-        AZError *result=[AZAppManager.sharedManager startRandomWithRadius:[alert.textFields[0].text doubleValue] speed:[alert.textFields[1].text doubleValue]/3.6 interval:[alert.textFields[2].text doubleValue]];
-        if(!result.isSuccess)[self alert:@"نصف القطر 1–10000 متر، السرعة حتى 288 كم/س، والتحديث 0.25–2 ثانية."];[self refreshStatus];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
-    [[self presenter]presentViewController:alert animated:YES completion:nil];
-}
-- (void)scheduleTapped {
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"الجدولة" message:@"تعمل أثناء فتح التطبيق فقط. إذا فات الموعد والتطبيق مغلق لا ينفذ بأثر رجعي. الأوقات حسب ساعة الجهاز." preferredStyle:UIAlertControllerStyleActionSheet];
-    for(NSString *type in @[@"location",@"route",@"random"]){
-        NSString *title=[type isEqual:@"location"]?@"جدولة الموقع الحالي":[type isEqual:@"route"]?@"جدولة آخر مسار":@"جدولة آخر إعداد عشوائي";
-        [alert addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action){[self configureSchedule:type];}]];
-    }
-    for(NSDictionary *entry in [AZAppManager.sharedManager schedules]){
-        NSInteger minute=[entry[@"minute"]integerValue];
-        NSString *title=[NSString stringWithFormat:@"حذف %@ — %02ld:%02ld",entry[@"plan"][@"type"],(long)(minute/60),(long)(minute%60)];
-        [alert addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action){[AZAppManager.sharedManager deleteSchedule:entry[@"id"]];}]];
-    }
-    [alert addAction:[UIAlertAction actionWithTitle:@"تشغيل الجداول" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action){[AZAppManager.sharedManager startScheduler];[self refreshStatus];}]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
-    alert.popoverPresentationController.sourceView=_panel ?: [self presenter].view;
-    alert.popoverPresentationController.sourceRect=CGRectMake(14,563,80,50);
-    [[self presenter]presentViewController:alert animated:YES completion:nil];
-}
-- (void)configureSchedule:(NSString *)type {
-    if(![type isEqual:@"location"] && ![NSUserDefaults.standardUserDefaults dictionaryForKey:[type isEqual:@"route"]?@"AZ.GPS.lastRoute":@"AZ.GPS.lastRandom"]){[self alert:@"شغل هذا الوضع مرة واحدة أولًا لحفظ إعداداته."];return;}
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"موعد التشغيل" message:@"الوقت HH:mm\nالأيام: 1 الأحد … 7 السبت. مثال 1,2,3,4,5,6,7\nإذا تداخلت الجداول ينفذ آخر جدول في القائمة." preferredStyle:UIAlertControllerStyleAlert];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *field){field.placeholder=@"14:30";}];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *field){field.text=@"1,2,3,4,5,6,7";}];
-    [alert addAction:[UIAlertAction actionWithTitle:@"حفظ" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action){
-        NSString *time=alert.textFields[0].text;NSRegularExpression *regex=[NSRegularExpression regularExpressionWithPattern:@"^([01][0-9]|2[0-3]):[0-5][0-9]$" options:0 error:nil];
-        if(![regex numberOfMatchesInString:time options:0 range:NSMakeRange(0,time.length)]){[self alert:@"أدخل الوقت بصيغة HH:mm."];return;}
-        NSMutableArray *days=[NSMutableArray new];
-        for(NSString *s in [alert.textFields[1].text componentsSeparatedByString:@","]){NSScanner *scanner=[NSScanner scannerWithString:s];NSInteger day=0;if(![scanner scanInteger:&day]||!scanner.isAtEnd||day<1||day>7){[self alert:@"الأيام أرقام من 1 إلى 7 مفصولة بفواصل."];return;}if(![days containsObject:@(day)])[days addObject:@(day)];}
-        NSArray *parts=[time componentsSeparatedByString:@":"];
-        [AZAppManager.sharedManager addDailyScheduleAt:[parts[0]integerValue]*60+[parts[1]integerValue] weekdays:days type:type];[self refreshStatus];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
-    [[self presenter]presentViewController:alert animated:YES completion:nil];
-}
-
-- (void)wifiTapped {
-
-    [self auditStateForFeature:
-        @"wifiTapped"
-        status:@"UI_ONLY"
-        details:@"Wi-Fi profile picker is not connected in this UI version"];
-
-    [self alert:
-        @"\u0648\u0627\u062c\u0647\u0629 Wi-Fi \u062c\u0627\u0647\u0632\u0629. \u064a\u0644\u0632\u0645 \u0627\u062e\u062a\u064a\u0627\u0631 Profile ID \u0644\u0631\u0628\u0637\u0647\u0627 \u0628\u0627\u0644\u0640 Core."];
-}
-
-
-- (void)bluetoothTapped {
-
-    [self auditStateForFeature:
-        @"bluetoothTapped"
-        status:@"UI_ONLY"
-        details:@"Bluetooth feature is not connected in this build"];
-
-    [self alert:
-        @"Bluetooth UI \u0641\u0642\u0637 \u0641\u064a \u0647\u0630\u0647 \u0627\u0644\u0646\u0633\u062e\u0629."];
-}
-
-
 - (void)deviceAction:(UIButton *)sender {
     AZAppManager *manager=AZAppManager.sharedManager;
     if(sender.tag==0){
@@ -1097,52 +893,16 @@ static NSString *const AZAppearancePrefsKey=@"AZ.GPS.ui.appearance";
 }
 
 - (void)stopAll {
-
-    AZAuditLogFeature(
-        @"stopAll",
-        @"REQUESTED",
-        @"Stopping movement and restoring default location"
-    );
-
-    AZError *stopError =
-        [[AZAppManager sharedManager]
-            stopMovement];
-
-    [self auditErrorResult:
-        stopError
-        feature:@"stopMovement"
-        details:@"source=Stop All"];
-
-    AZError *restoreError =
-        [[AZAppManager sharedManager]
-            restoreDefaultLocation];
-
-    [self auditErrorResult:
-        restoreError
-        feature:@"restoreDefaultLocation"
-        details:@"source=Stop All"];
-
-    _locationSwitch.on = NO;
-
+    AZError *result=[AZAppManager.sharedManager restoreDefaultLocation];
     [self refreshStatus];
-
-    [self alert:
-        @"\u062a\u0645 \u0625\u064a\u0642\u0627\u0641 \u062d\u0627\u0644\u0629 AZGPS Runtime \u0627\u0644\u062d\u0627\u0644\u064a\u0629."];
+    if(!result.isSuccess)[self alert:result.humanReadableMessage];
 }
-
 
 - (void)refreshStatus {
-    NSDictionary *s=[[AZRuntimeState sharedState] snapshotForUI];
-    BOOL active=[s[@"locationEnabled"] boolValue];
-    if (_statusLabel) _statusLabel.text=[s[@"movementActive"]boolValue] ? [NSString stringWithFormat:@"%@ %@ • %.0f%%", [s[@"randomMovementActive"]boolValue]?@"عشوائي":@"مسار", [s[@"movementPaused"]boolValue]?@"متوقف مؤقتًا":@"يعمل", [s[@"routeProgress"]doubleValue]*100] : (active ? @"LOCATION ACTIVE" : @"DEFAULT");
-    if (_locationSwitch) _locationSwitch.on=active;
-    if (_mapView && [s[@"movementActive"]boolValue]) {
-        if (!_movementPin) {_movementPin=[MKPointAnnotation new];_movementPin.title=@"AZ.GPS — الموقع المتحرك";[_mapView addAnnotation:_movementPin];}
-        _movementPin.coordinate=CLLocationCoordinate2DMake([s[@"currentLatitude"]doubleValue],[s[@"currentLongitude"]doubleValue]);
-    } else if (_movementPin) {[_mapView removeAnnotation:_movementPin];_movementPin=nil;}
-
+    BOOL active=AZRuntimeState.sharedState.locationEnabled;
+    _statusLabel.text=active ? @"LOCATION ACTIVE" : @"DEFAULT";
+    _locationSwitch.on=active;
 }
-
 
 #pragma mark - Audit Logs
 
@@ -1177,10 +937,6 @@ static NSString *const AZAppearancePrefsKey=@"AZ.GPS.ui.appearance";
     [self alert:@"AZ.GPS"];
 }
 
-- (void)notImplemented {
-    [self alert:@"\u0647\u0630\u0647 \u0627\u0644\u0648\u0627\u062C\u0647\u0629 \u0645\u0648\u062C\u0648\u062F\u0629\u060C \u0644\u0643\u0646 \u0627\u0644\u0648\u0638\u064A\u0641\u0629 \u063A\u064A\u0631 \u0645\u0648\u0635\u0648\u0644\u0629 \u0628\u0627\u0644\u0640 Core \u0627\u0644\u062D\u0627\u0644\u064A \u0628\u0639\u062F."];
-}
-
 - (void)alert:(NSString *)message {
     UIViewController *vc=_overlayWindow.rootViewController;
     while (vc.presentedViewController) vc=vc.presentedViewController;
@@ -1195,187 +951,6 @@ static NSString *const AZAppearancePrefsKey=@"AZ.GPS.ui.appearance";
 }
 
 
-#pragma mark - Customization
-- (NSDictionary *)appearancePreferences {return [NSUserDefaults.standardUserDefaults dictionaryForKey:AZAppearancePrefsKey] ?: @{};}
-- (NSDictionary *)layoutPreferences {return [NSUserDefaults.standardUserDefaults dictionaryForKey:AZLayoutPrefsKey] ?: @{};}
-- (UIColor *)customAccent {
-    NSString *hex=[self appearancePreferences][@"accent"];if(!hex.length)return nil;
-    unsigned value=0;[[NSScanner scannerWithString:hex]scanHexInt:&value];
-    return [UIColor colorWithRed:((value>>16)&255)/255.0 green:((value>>8)&255)/255.0 blue:(value&255)/255.0 alpha:1];
-}
-- (void)applyFloatingPreferences {
-    NSDictionary *prefs=[self appearancePreferences];CGFloat size=prefs[@"size"]?[prefs[@"size"]doubleValue]:62;
-    size=MAX(44,MIN(110,size));CGFloat alpha=prefs[@"alpha"]?[prefs[@"alpha"]doubleValue]:1;
-    UIView *root=_floatingButton.superview;CGFloat w=CGRectGetWidth(root.bounds),h=CGRectGetHeight(root.bounds);
-    CGPoint center=_floatingButton.center;
-    if(prefs[@"x"]&&prefs[@"y"])center=CGPointMake([prefs[@"x"]doubleValue]*w,[prefs[@"y"]doubleValue]*h);
-    center.x=MAX(size/2,MIN(w-size/2,center.x));center.y=MAX(size/2,MIN(h-size/2,center.y));
-    _floatingButton.bounds=CGRectMake(0,0,size,size);_floatingButton.center=center;
-    _floatingButton.layer.cornerRadius=size/2;_floatingButton.alpha=MAX(0.25,MIN(1,alpha));
-    _floatingButton.titleLabel.font=[UIFont systemFontOfSize:size*0.47];
-    _floatingButton.backgroundColor=[self customAccent] ?: [UIColor colorWithRed:0.08 green:0.09 blue:0.1 alpha:0.98];
-}
-- (void)customizationLongPress:(UILongPressGestureRecognizer *)gesture {
-    if(gesture.state!=UIGestureRecognizerStateBegan)return;
-    if(!_panel)[self buildPanel];[self showCustomization];
-}
-- (BOOL)isCustomizationButton:(UIButton *)button {
-    return [[button actionsForTarget:self forControlEvent:UIControlEventTouchUpInside]containsObject:@"showCustomization"];
-}
-- (void)registerViews:(UIView *)container path:(NSString *)path {
-    NSUInteger index=0;
-    for(UIView *view in container.subviews){
-        NSString *key=[NSString stringWithFormat:@"%@/%lu",path,(unsigned long)index++];
-        objc_setAssociatedObject(view,&AZBaseFrameKey,[NSValue valueWithCGRect:view.frame],OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        if([view isKindOfClass:UIButton.class]){
-            UIButton *button=(UIButton *)view;
-            objc_setAssociatedObject(button,&AZButtonKey,key,OBJC_ASSOCIATION_COPY_NONATOMIC);
-            NSString *title=[button titleForState:UIControlStateNormal] ?: @"زر";
-            [_customButtons addObject:@{@"key":key,@"title":title,@"button":button}];
-        }else if([view class]==UIView.class){[self registerViews:view path:key];}
-    }
-}
-- (void)registerCustomization {
-    _customButtons=[NSMutableArray new];[self registerViews:_content path:@"panel"];
-}
-- (CGRect)baseFrame:(UIView *)view {
-    NSValue *value=objc_getAssociatedObject(view,&AZBaseFrameKey);return value?value.CGRectValue:view.frame;
-}
-- (CGFloat)reflowContainer:(UIView *)container {
-    NSArray *ordered=[container.subviews sortedArrayUsingComparator:^NSComparisonResult(UIView *a,UIView *b){
-        CGRect x=[self baseFrame:a],y=[self baseFrame:b];if(x.origin.y<y.origin.y)return NSOrderedAscending;if(x.origin.y>y.origin.y)return NSOrderedDescending;
-        return x.origin.x<y.origin.x?NSOrderedAscending:NSOrderedDescending;
-    }];
-    NSMutableArray *groups=[NSMutableArray new];NSMutableArray *group=nil;CGFloat end=-1;
-    for(UIView *view in ordered){
-        CGRect base=[self baseFrame:view];
-        if(!group||base.origin.y>=end){group=[NSMutableArray new];[groups addObject:group];end=CGRectGetMaxY(base);}
-        [group addObject:view];end=MAX(end,CGRectGetMaxY(base));
-    }
-    NSDictionary *prefs=[self layoutPreferences];CGFloat shift=0;
-    for(NSArray *row in groups){
-        CGFloat start=CGFLOAT_MAX,oldEnd=0,newEnd=0;NSMutableArray *buttons=[NSMutableArray new];BOOL changed=NO;
-        for(UIView *view in row){
-            CGRect base=[self baseFrame:view];start=MIN(start,base.origin.y);oldEnd=MAX(oldEnd,CGRectGetMaxY(base));
-            if([view isKindOfClass:UIButton.class]){
-                [buttons addObject:view];NSString *key=objc_getAssociatedObject(view,&AZButtonKey);NSDictionary *setting=prefs[key];
-                if(setting.count)changed=YES;
-            }else if([view class]==UIView.class){
-                CGFloat height=[self reflowContainer:view];CGRect frame=base;frame.size.height=height;view.frame=frame;
-            }else view.frame=base;
-        }
-        CGFloat nonButtonEnd=start;
-        for(UIView *view in row)if(![view isKindOfClass:UIButton.class]){
-            CGRect frame=view.frame;frame.origin.y=[self baseFrame:view].origin.y+shift;view.frame=frame;
-            newEnd=MAX(newEnd,CGRectGetMaxY(frame));nonButtonEnd=MAX(nonButtonEnd,CGRectGetMaxY(frame)-shift);
-        }
-        NSArray *sorted=[buttons sortedArrayUsingComparator:^NSComparisonResult(UIView *a,UIView *b){return [self baseFrame:a].origin.x<[self baseFrame:b].origin.x?NSOrderedAscending:NSOrderedDescending;}];
-        CGFloat left=sorted.count?[self baseFrame:sorted.firstObject].origin.x:0;
-        if(row.count!=buttons.count)left=MIN(left,16.0);
-        CGFloat x=left,y=row.count==buttons.count?start:nonButtonEnd+8,lineHeight=0;
-        CGFloat width=CGRectGetWidth(container.bounds);
-        for(UIButton *button in sorted){
-            CGRect base=[self baseFrame:button];NSDictionary *setting=prefs[objc_getAssociatedObject(button,&AZButtonKey)];
-            BOOL pinned=[self isCustomizationButton:button];button.hidden=!pinned&&[setting[@"hidden"]boolValue];
-            if(button.hidden)continue;
-            CGRect frame=base;
-            if(changed){
-                frame.size.width=setting[@"width"]?MAX(44,MIN(width-left*2,[setting[@"width"]doubleValue])):MIN(base.size.width,width-left*2);
-                frame.size.height=setting[@"height"]?MAX(32,MIN(160,[setting[@"height"]doubleValue])):base.size.height;
-                if(x>left&&x+frame.size.width>width-left){x=left;y+=lineHeight+8;lineHeight=0;}
-                frame.origin=CGPointMake(x,y+shift);x+=frame.size.width+8;lineHeight=MAX(lineHeight,frame.size.height);
-            }else frame.origin.y+=shift;
-            button.frame=frame;newEnd=MAX(newEnd,CGRectGetMaxY(frame));
-        }
-        if(!newEnd)newEnd=start+shift;shift+=newEnd-(oldEnd+shift);
-    }
-    return MAX(1,CGRectGetHeight([self baseFrame:container])+shift);
-}
-- (void)applyCustomizedLayout {
-    UIColor *accent=[self customAccent];
-    for(NSDictionary *item in _customButtons){
-        UIButton *button=item[@"button"];
-        if(accent){button.backgroundColor=[accent colorWithAlphaComponent:0.23];button.layer.borderColor=[accent colorWithAlphaComponent:0.65].CGColor;}
-    }
-    if([self layoutPreferences].count){
-        CGFloat height=[self reflowContainer:_content];CGRect frame=_content.frame;frame.size.height=height;_content.frame=frame;_panel.contentSize=frame.size;
-    }
-}
-- (void)rebuildCustomizedPanel {
-    BOOL open=_panel!=nil;if(open){[self closePanel];[self buildPanel];}[self applyFloatingPreferences];
-}
-- (void)showCustomization {
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"تخصيص AZ.GPS" message:@"تغيير حجم الأزرار وإخفاؤها لا يوقف الوظائف التي تعمل. زر التخصيص يبقى متاحًا." preferredStyle:UIAlertControllerStyleActionSheet];
-    [alert addAction:[UIAlertAction actionWithTitle:@"تعديل الأزرار وإظهار المخفي" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){[self showButtonEditorList];}]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"اللون والزر العائم" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){[self showAppearanceEditor];}]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"إرجاع الافتراضي" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *a){[self confirmResetCustomization];}]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"إغلاق" style:UIAlertActionStyleCancel handler:nil]];
-    alert.popoverPresentationController.sourceView=_panel ?: _floatingButton;
-    alert.popoverPresentationController.sourceRect=alert.popoverPresentationController.sourceView.bounds;
-    [[self presenter]presentViewController:alert animated:YES completion:nil];
-}
-- (void)showButtonEditorList {
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"أزرار الواجهة" message:@"اختر زرًا لتعديل عرضه وارتفاعه أو إخفائه." preferredStyle:UIAlertControllerStyleActionSheet];
-    NSDictionary *prefs=[self layoutPreferences];
-    for(NSDictionary *item in _customButtons){
-        BOOL hidden=[prefs[item[@"key"]][@"hidden"]boolValue];
-        NSString *title=[NSString stringWithFormat:@"%@%@ %@",hidden?@"مخفي • ":@"",item[@"title"],[item[@"button"] isEnabled]?@"":@"(غير متاح)"];
-        [alert addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){[self editButton:item];}]];
-    }
-    [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
-    alert.popoverPresentationController.sourceView=_panel;alert.popoverPresentationController.sourceRect=_panel.bounds;
-    [[self presenter]presentViewController:alert animated:YES completion:nil];
-}
-- (void)editButton:(NSDictionary *)item {
-    UIButton *button=item[@"button"];CGRect base=[self baseFrame:button];NSDictionary *setting=[self layoutPreferences][item[@"key"]];
-    BOOL pinned=[self isCustomizationButton:button];
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:item[@"title"] message:@"العرض 44–340 والارتفاع 32–160 نقطة. العرض يتكيّف مع مساحة الواجهة. إخفاء الزر قابل للاستعادة." preferredStyle:UIAlertControllerStyleAlert];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *f){f.placeholder=@"العرض";f.text=[NSString stringWithFormat:@"%.0f",setting[@"width"]?[setting[@"width"]doubleValue]:base.size.width];f.keyboardType=UIKeyboardTypeDecimalPad;}];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *f){f.placeholder=@"الارتفاع";f.text=[NSString stringWithFormat:@"%.0f",setting[@"height"]?[setting[@"height"]doubleValue]:base.size.height];f.keyboardType=UIKeyboardTypeDecimalPad;}];
-    [alert addAction:[UIAlertAction actionWithTitle:@"حفظ الحجم" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-        double width=[alert.textFields[0].text doubleValue],height=[alert.textFields[1].text doubleValue];
-        if(!isfinite(width)||!isfinite(height)||width<44||width>340||height<32||height>160){[self alert:@"أدخل عرضًا 44–340 وارتفاعًا 32–160."];return;}
-        NSMutableDictionary *prefs=[[self layoutPreferences]mutableCopy];prefs[item[@"key"]]=@{@"width":@(width),@"height":@(height),@"hidden":@(!pinned&&[setting[@"hidden"]boolValue])};
-        [NSUserDefaults.standardUserDefaults setObject:prefs forKey:AZLayoutPrefsKey];[self rebuildCustomizedPanel];
-    }]];
-    if(!pinned)[alert addAction:[UIAlertAction actionWithTitle:[setting[@"hidden"]boolValue]?@"إظهار الزر":@"إخفاء الزر" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-        NSMutableDictionary *prefs=[[self layoutPreferences]mutableCopy],*value=[setting mutableCopy] ?: [NSMutableDictionary new];value[@"hidden"]=@(![setting[@"hidden"]boolValue]);prefs[item[@"key"]]=value;
-        [NSUserDefaults.standardUserDefaults setObject:prefs forKey:AZLayoutPrefsKey];[self rebuildCustomizedPanel];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"إعادة هذا الزر للافتراضي" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-        NSMutableDictionary *prefs=[[self layoutPreferences]mutableCopy];[prefs removeObjectForKey:item[@"key"]];[NSUserDefaults.standardUserDefaults setObject:prefs forKey:AZLayoutPrefsKey];[self rebuildCustomizedPanel];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
-    [[self presenter]presentViewController:alert animated:YES completion:nil];
-}
-- (void)showAppearanceEditor {
-    NSDictionary *prefs=[self appearancePreferences];
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"المظهر والزر العائم" message:@"لون HEX مثل 0099FF (اتركه فارغًا للون الأصلي). حجم الزر 44–110، الشفافية 25–100%. موضع الزر يُحفظ تلقائيًا عند سحبه." preferredStyle:UIAlertControllerStyleAlert];
-    NSArray *values=@[prefs[@"accent"] ?: @"",[NSString stringWithFormat:@"%.0f",prefs[@"size"]?[prefs[@"size"]doubleValue]:62],[NSString stringWithFormat:@"%.0f",prefs[@"alpha"]?[prefs[@"alpha"]doubleValue]*100:100]];
-    NSArray *names=@[@"لون HEX",@"حجم الزر",@"الشفافية %"];
-    for(NSUInteger i=0;i<3;i++)[alert addTextFieldWithConfigurationHandler:^(UITextField *f){f.text=values[i];f.placeholder=names[i];f.autocorrectionType=UITextAutocorrectionTypeNo;}];
-    [alert addAction:[UIAlertAction actionWithTitle:@"حفظ" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a){
-        NSString *hex=[[alert.textFields[0].text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]uppercaseString];if([hex hasPrefix:@"#"])hex=[hex substringFromIndex:1];
-        NSRegularExpression *regex=[NSRegularExpression regularExpressionWithPattern:@"^[0-9A-F]{6}$" options:0 error:nil];
-        double size=[alert.textFields[1].text doubleValue],alpha=[alert.textFields[2].text doubleValue]/100;
-        if((hex.length&&![regex numberOfMatchesInString:hex options:0 range:NSMakeRange(0,hex.length)])||!isfinite(size)||size<44||size>110||!isfinite(alpha)||alpha<0.25||alpha>1){[self alert:@"تحقق من اللون والحجم والشفافية."];return;}
-        NSMutableDictionary *value=[prefs mutableCopy];value[@"accent"]=hex;value[@"size"]=@(size);value[@"alpha"]=@(alpha);
-        [NSUserDefaults.standardUserDefaults setObject:value forKey:AZAppearancePrefsKey];[self rebuildCustomizedPanel];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
-    [[self presenter]presentViewController:alert animated:YES completion:nil];
-}
-- (void)confirmResetCustomization {
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"إرجاع الواجهة الافتراضية؟" message:@"يرجع أحجام الأزرار ويظهرها ويعيد اللون وحجم وشفافية وموضع الزر العائم." preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"إرجاع الافتراضي" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *a){
-        [NSUserDefaults.standardUserDefaults removeObjectForKey:AZLayoutPrefsKey];[NSUserDefaults.standardUserDefaults removeObjectForKey:AZAppearancePrefsKey];
-        _floatingButton.frame=CGRectMake(18,160,62,62);[self rebuildCustomizedPanel];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
-    [[self presenter]presentViewController:alert animated:YES completion:nil];
-}
-
-
 #pragma mark - Close
 
 - (void)closePanel {
@@ -1386,11 +961,9 @@ static NSString *const AZAppearancePrefsKey=@"AZ.GPS.ui.appearance";
     _content=nil;
     _searchBar=nil;
     _mapView=nil;
-    _movementPin=nil;
     _coordLabel=nil;
     _statusLabel=nil;
     _locationSwitch=nil;
-    _photoSwitch=nil;
 
     _floatingButton.hidden=NO;
 }

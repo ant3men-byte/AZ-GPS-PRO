@@ -5,12 +5,7 @@
 typedef NS_ENUM(NSInteger, AZLogCategory) {
     AZLogCore,
     AZLogLocation,
-    AZLogMovement,
-    AZLogRandom,
-    AZLogRoute,
-    AZLogWiFi,
     AZLogDevice,
-    AZLogScheduler,
     AZLogStorage,
     AZLogUI
 };
@@ -34,7 +29,6 @@ typedef NS_ENUM(NSInteger, AZErrorCode) {
     AZErrorCodeConflict           = 4,
     AZErrorCodeStorageError       = 5,
     AZErrorCodeUnsupportedVersion = 6,
-    AZErrorCodeRouteError         = 7,
 };
 
 @interface AZError : NSObject
@@ -57,7 +51,6 @@ typedef NS_ENUM(NSInteger, AZErrorCode) {
 
 extern NSString * const AZEventLocationChanged;
 extern NSString * const AZEventRuntimeStateChanged;
-extern NSString * const AZEventRouteProgressChanged;
 extern NSString * const AZEventErrorOccurred;
 
 @interface AZEventBus : NSObject
@@ -81,9 +74,6 @@ extern NSString * const AZEventErrorOccurred;
 typedef NS_ENUM(NSInteger, AZLocationMode) {
     AZLocationModeDefault  = 0,
     AZLocationModeStatic   = 1,
-    AZLocationModeMovement = 2,
-    AZLocationModeRandom   = 3,
-    AZLocationModeRoute    = 4,
 };
 
 @protocol AZRuntimeStateMutable <NSObject>
@@ -93,24 +83,11 @@ typedef NS_ENUM(NSInteger, AZLocationMode) {
 @property (nonatomic, assign, readwrite) double currentLongitude;
 @property (nonatomic, assign, readwrite) AZLocationMode locationMode;
 
-@property (nonatomic, assign, readwrite) BOOL movementActive;
-@property (nonatomic, assign, readwrite) BOOL movementPaused;
-@property (nonatomic, assign, readwrite) double movementSpeed;
-@property (nonatomic, assign, readwrite) double movementCourse;
 
-@property (nonatomic, assign, readwrite) BOOL randomMovementActive;
-@property (nonatomic, assign, readwrite) double randomRadius;
 
-@property (nonatomic, assign, readwrite) BOOL routeActive;
-@property (nonatomic, assign, readwrite) BOOL routePaused;
-@property (nonatomic, assign, readwrite) double routeProgress;
-@property (nonatomic, assign, readwrite) double routeDistanceRemaining;
-@property (nonatomic, assign, readwrite) double routeSpeed;
 
-@property (nonatomic, copy, readwrite) NSString *activeWiFiProfileID;
 @property (nonatomic, copy, readwrite) NSString *activeDeviceProfileID;
 
-@property (nonatomic, assign, readwrite) BOOL schedulerActive;
 
 @property (nonatomic, copy, readwrite) NSString *lastAction;
 @property (nonatomic, copy, readwrite) NSString *lastError;
@@ -127,24 +104,11 @@ typedef NS_ENUM(NSInteger, AZLocationMode) {
 @property (nonatomic, readonly) double currentLongitude;
 @property (nonatomic, readonly) AZLocationMode locationMode;
 
-@property (nonatomic, readonly) BOOL movementActive;
-@property (nonatomic, readonly) BOOL movementPaused;
-@property (nonatomic, readonly) double movementSpeed;
-@property (nonatomic, readonly) double movementCourse;
 
-@property (nonatomic, readonly) BOOL randomMovementActive;
-@property (nonatomic, readonly) double randomRadius;
 
-@property (nonatomic, readonly) BOOL routeActive;
-@property (nonatomic, readonly) BOOL routePaused;
-@property (nonatomic, readonly) double routeProgress;
-@property (nonatomic, readonly) double routeDistanceRemaining;
-@property (nonatomic, readonly) double routeSpeed;
 
-@property (nonatomic, readonly, copy) NSString *activeWiFiProfileID;
 @property (nonatomic, readonly, copy) NSString *activeDeviceProfileID;
 
-@property (nonatomic, readonly) BOOL schedulerActive;
 
 @property (nonatomic, readonly, copy) NSString *lastAction;
 @property (nonatomic, readonly, copy) NSString *lastError;
@@ -246,45 +210,6 @@ typedef NS_ENUM(NSInteger, AZLocationMode) {
 @end
 
 
-#pragma mark - AZMovementEngine
-
-typedef NS_ENUM(NSInteger, AZMovementEngineState) {
-    AZMovementEngineStateStopped  = 0,
-    AZMovementEngineStateRunning  = 1,
-    AZMovementEngineStatePaused   = 2,
-    AZMovementEngineStateFinished = 3,
-};
-
-@interface AZMovementEngine : NSObject
-
-@property (nonatomic, readonly) AZMovementEngineState state;
-@property (nonatomic, readonly) double currentLatitude;
-@property (nonatomic, readonly) double currentLongitude;
-@property (nonatomic, readonly) double courseDegrees;
-@property (nonatomic, readonly) double distanceRemainingMeters;
-@property (nonatomic, readonly) double progress;
-
-- (AZError *)startFromLatitude:(double)fromLat
-                     longitude:(double)fromLon
-                    toLatitude:(double)toLat
-                    longitude2:(double)toLon
-                         speed:(double)metersPerSecond
-                updateInterval:(NSTimeInterval)intervalSeconds
-                        onTick:
-                            (void (^)(double lat,
-                                      double lon,
-                                      double course,
-                                      double remaining,
-                                      double progress))onTick
-                    onComplete:(void (^)(void))onComplete;
-
-- (void)pause;
-- (void)resume;
-- (void)stop;
-
-@end
-
-
 #pragma mark - AZAppManager
 
 @interface AZAppManager : NSObject
@@ -298,38 +223,11 @@ typedef NS_ENUM(NSInteger, AZMovementEngineState) {
 
 - (AZError *)restoreDefaultLocation;
 
-- (AZError *)startMovementFromLatitude:(double)fromLat
-                             longitude:(double)fromLon
-                            toLatitude:(double)toLat
-                            longitude2:(double)toLon
-                                 speed:(double)metersPerSecond;
-
-- (AZError *)pauseMovement;
-- (AZError *)resumeMovement;
-- (AZError *)stopMovement;
-
-- (AZError *)startRandomMovementWithRadius:(double)radiusMeters;
-
-- (AZError *)startRouteWithWaypoints:(NSArray *)waypoints
-                               speed:(double)metersPerSecond;
-
-- (AZError *)setActiveWiFiProfileWithID:(NSString *)profileID;
-
 - (AZError *)setActiveDeviceProfileWithID:(NSString *)profileID;
 
-- (AZError *)startScheduler;
 
 @end
 @class CLLocation;
 /// Fresh real device location, independent of the simulation state. Main-thread completion.
 void AZRequestRealLocation(void (^completion)(CLLocation *location, NSError *error));
-
-@interface AZAppManager (Simulation)
-- (void)prepareRouteFrom:(NSDictionary *)from to:(NSDictionary *)to completion:(void (^)(NSArray *points, NSError *error))completion;
-- (AZError *)startRandomWithRadius:(double)radius speed:(double)speed interval:(double)interval;
-- (void)addDailyScheduleAt:(NSInteger)minute weekdays:(NSArray *)days type:(NSString *)type;
-- (NSArray *)schedules;
-- (void)deleteSchedule:(NSString *)identifier;
-- (void)stopAllFeatures;
-@end
 

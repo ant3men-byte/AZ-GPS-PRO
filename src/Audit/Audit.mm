@@ -260,21 +260,6 @@ void AZAuditLogState(
     NSInteger locationMode =
         [snapshot[@"locationMode"] integerValue];
 
-    BOOL movementActive =
-        [snapshot[@"movementActive"] boolValue];
-
-    BOOL movementPaused =
-        [snapshot[@"movementPaused"] boolValue];
-
-    BOOL randomActive =
-        [snapshot[@"randomMovementActive"] boolValue];
-
-    BOOL routeActive =
-        [snapshot[@"routeActive"] boolValue];
-
-    BOOL schedulerActive =
-        [snapshot[@"schedulerActive"] boolValue];
-
     NSString *lastAction =
         [snapshot[@"lastAction"] isKindOfClass:[NSString class]]
             ? snapshot[@"lastAction"]
@@ -288,17 +273,12 @@ void AZAuditLogState(
     AZAuditWrite(
         @"STATE",
         [NSString stringWithFormat:
-            @"SOURCE=%@ | locationEnabled=%@ | lat=%.8f | lon=%.8f | mode=%ld | movement=%@ | paused=%@ | random=%@ | route=%@ | scheduler=%@ | lastAction=%@ | lastError=%@",
+            @"SOURCE=%@ | locationEnabled=%@ | lat=%.8f | lon=%.8f | mode=%ld | lastAction=%@ | lastError=%@",
             source ?: @"unknown",
             locationEnabled ? @"YES" : @"NO",
             lat,
             lon,
             (long)locationMode,
-            movementActive ? @"YES" : @"NO",
-            movementPaused ? @"YES" : @"NO",
-            randomActive ? @"YES" : @"NO",
-            routeActive ? @"YES" : @"NO",
-            schedulerActive ? @"YES" : @"NO",
             lastAction,
             lastError]
     );
