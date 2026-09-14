@@ -1,3 +1,4 @@
+#import "LicenseManager.h"
 #import "AZGPS.h"
 #import "UI.h"
 #import "Audit.h"
@@ -106,16 +107,9 @@
     return obj;
 }
 
-+ (void)load {
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        [[AZUIController sharedController] installWhenReady];
-    });
-}
-
 - (void)installWhenReady {
     dispatch_async(dispatch_get_main_queue(), ^{
-        [self installOverlay];
+        if(AZLicenseCanRun()){[self installOverlay];if(!self->_panel)[self buildPanel];}
     });
 }
 
@@ -134,6 +128,7 @@
 }
 
 - (void)installOverlay {
+    if(!AZLicenseCanRun())return;
     if (_overlayWindow) {
         _overlayWindow.hidden = NO;
         return;
@@ -145,7 +140,7 @@
         if (!scene) {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC),
                            dispatch_get_main_queue(), ^{
-                [self installOverlay];
+                if(AZLicenseCanRun()){[self installOverlay];if(!self->_panel)[self buildPanel];}
             });
             return;
         }
@@ -254,6 +249,7 @@
 }
 
 - (void)buildPanel {
+    if(!AZLicenseCanRun())return;
     UIView *root = _overlayWindow.rootViewController.view;
     if (!root) return;
 
@@ -950,6 +946,11 @@
     [vc presentViewController:a animated:YES completion:nil];
 }
 
+
+- (void)hideForLicense {
+    if(_panel)[self closePanel];
+    _overlayWindow.hidden=YES;
+}
 
 #pragma mark - Close
 

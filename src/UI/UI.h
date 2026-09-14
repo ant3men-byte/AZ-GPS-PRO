@@ -4,5 +4,6 @@
 
 + (instancetype)sharedController;
 - (void)installWhenReady;
+- (void)hideForLicense;
 
 @end

@@ -2,3 +2,10 @@ build/
 .DS_Store
 *.log
 
+
+.dev.vars
+.env
+.env.*
+!.env.example
+node_modules/
+.wrangler/
