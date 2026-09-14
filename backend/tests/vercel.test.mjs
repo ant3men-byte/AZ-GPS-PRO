@@ -1,0 +1,3 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import handler from '../api/licensing.mjs';
+const response=()=>({statusCode:200,headers:{},setHeader(k,v){this.headers[k]=v;},end(data){this.data=data;}});
+test('Vercel adapter validates route and translates fail-closed response',async()=>{let res=response();await handler({query:{route:'../schema.sql'},headers:{},method:'GET'},res);assert.equal(res.statusCode,404);res=response();await handler({query:{route:'license/challenge'},headers:{'content-type':'application/json'},method:'POST',body:{}},res);assert.equal(res.statusCode,503);assert.equal(JSON.parse(res.data).error,'server_not_configured');});

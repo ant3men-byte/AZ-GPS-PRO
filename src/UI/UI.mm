@@ -325,7 +325,6 @@
     UIColor *green  = [UIColor colorWithRed:.10 green:.72 blue:.30 alpha:1];
     UIColor *red    = [UIColor colorWithRed:.92 green:.23 blue:.20 alpha:1];
     UIColor *cyan   = [UIColor colorWithRed:.0 green:.72 blue:.88 alpha:1];
-    UIColor *teal   = [UIColor colorWithRed:.08 green:.72 blue:.62 alpha:1];
     UIColor *purple = [UIColor colorWithRed:.58 green:.31 blue:.92 alpha:1];
 
     CGFloat gap=8, third=(inner-gap*2)/3.0;

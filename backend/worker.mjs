@@ -44,6 +44,7 @@ export async function handle(request,env){
   if(Number(request.headers.get('Content-Length'))>16384)return json({error:'request_too_large'},413);
   const text=await request.text();if(text.length>16384)return json({error:'request_too_large'},413);
   try{data=JSON.parse(text);}catch{return json({error:'invalid_json'},400);}
+  if(!data||typeof data!=='object'||Array.isArray(data))return json({error:'invalid_json'},400);
  }
  if(admin){
   if(path==='/admin/licenses'){

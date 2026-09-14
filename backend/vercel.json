@@ -10,16 +10,16 @@
   },
   "rewrites": [
     {
+      "source": "/admin/licenses",
+      "destination": "/api/licensing?route=admin/licenses"
+    },
+    {
       "source": "/license/:path*",
       "destination": "/api/licensing?route=license/:path*"
     },
     {
       "source": "/admin/licenses/:path*",
       "destination": "/api/licensing?route=admin/licenses/:path*"
-    },
-    {
-      "source": "/admin/licenses",
-      "destination": "/api/licensing?route=admin/licenses"
     }
   ],
   "headers": [

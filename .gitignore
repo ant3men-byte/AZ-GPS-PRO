@@ -9,3 +9,5 @@ build/
 !.env.example
 node_modules/
 .wrangler/
+backend/public/
+.vercel/

@@ -3,6 +3,10 @@
 #import <Security/Security.h>
 #import <cmath>
 @implementation AZLicenseAPIClient
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))completionHandler {
+    // Never forward a license code or proof to a redirected origin.
+    completionHandler(nil);
+}
 - (NSError *)error:(NSString *)message {return [NSError errorWithDomain:@"AZLicense" code:1 userInfo:@{NSLocalizedDescriptionKey:message ?: @"تعذر التحقق"}];}
 - (void)post:(NSString *)path body:(NSDictionary *)body completion:(void (^)(NSDictionary *,NSError *))completion {
  NSURL *base=[NSURL URLWithString:@AZ_LICENSE_API_URL];
@@ -11,7 +15,7 @@
  [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];NSError *encodeError=nil;request.HTTPBody=[NSJSONSerialization dataWithJSONObject:body options:0 error:&encodeError];
  if(encodeError){completion(nil,encodeError);return;}
  NSURLSessionConfiguration *config=NSURLSessionConfiguration.ephemeralSessionConfiguration;config.timeoutIntervalForRequest=12;config.timeoutIntervalForResource=15;config.URLCache=nil;
- NSURLSession *session=[NSURLSession sessionWithConfiguration:config];
+ NSURLSession *session=[NSURLSession sessionWithConfiguration:config delegate:self delegateQueue:nil];
  [[session dataTaskWithRequest:request completionHandler:^(NSData *data,NSURLResponse *response,NSError *error){
   NSDictionary *result=nil;if(data.length&&data.length<16384){id obj=[NSJSONSerialization JSONObjectWithData:data options:0 error:nil];if([obj isKindOfClass:NSDictionary.class])result=obj;}
   NSInteger status=[(NSHTTPURLResponse *)response statusCode];
