@@ -8,6 +8,7 @@
 #import <Network/Network.h>
 #import <mach/mach_time.h>
 #import <atomic>
+#import <cmath>
 static std::atomic<bool> AZAuthorized(false);
 static std::atomic<double> AZDeadline(0);
 static double AZMonotonic(void){static mach_timebase_info_data_t info;static dispatch_once_t once;dispatch_once(&once,^{mach_timebase_info(&info);});return (double)mach_continuous_time()*info.numer/info.denom/1e9;}
@@ -33,6 +34,9 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
 @property(nonatomic,strong) NSHashTable<UIWindow *> *tapWindows;
 @property(nonatomic) double subscriptionDeadline;
 @property(nonatomic,copy) NSString *pendingCode;
+@property(nonatomic) BOOL activationRequested;
+@property(nonatomic,strong) NSDictionary *subscription;
+@property(nonatomic) double lastVerify;
 @end
 @implementation AZLicenseManager
 + (instancetype)sharedManager {static AZLicenseManager *m;static dispatch_once_t once;dispatch_once(&once,^{m=[self new];m.identity=[AZInstallationIdentity new];m.api=[AZLicenseAPIClient new];m.pathAvailable=YES;});return m;}
@@ -46,13 +50,13 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
  self.tapWindows=[NSHashTable weakObjectsHashTable];
  [[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(windowVisible:) name:UIWindowDidBecomeVisibleNotification object:nil];
  [self installTapGestures];
- self.timer=[NSTimer timerWithTimeInterval:1 repeats:YES block:^(__unused NSTimer *t){AZLicenseManager *m=weak;if(!m||!m.active)return;[m installTapGestures];if(AZAuthorized.load()&&!AZLicenseCanRun()){[m disable];if(m.subscriptionDeadline>0&&AZMonotonic()>=m.subscriptionDeadline){[m showActivation];m.message.text=[m friendly:@"expired"];}}static double lastVerify=0;if(AZMonotonic()-lastVerify>=60){lastVerify=AZMonotonic();[m verify];}}];[[NSRunLoop mainRunLoop]addTimer:self.timer forMode:NSRunLoopCommonModes];
+ self.timer=[NSTimer timerWithTimeInterval:1 repeats:YES block:^(__unused NSTimer *t){AZLicenseManager *m=weak;if(!m||!m.active)return;[m installTapGestures];if(AZAuthorized.load()&&!AZLicenseCanRun()){[m disable];if(m.subscriptionDeadline>0&&AZMonotonic()>=m.subscriptionDeadline){[m showActivation];m.message.text=[m friendly:@"expired"];}}if(AZMonotonic()-m.lastVerify>=60){m.lastVerify=AZMonotonic();[m verify];}}];[[NSRunLoop mainRunLoop]addTimer:self.timer forMode:NSRunLoopCommonModes];
  self.active=UIApplication.sharedApplication.applicationState==UIApplicationStateActive;
  if(self.active)[self begin];
 }
-- (void)begin {if(!self.identity.savedCode.length)[self showActivation];else [self verify];}
-- (void)foreground:(NSNotification *)note {self.active=YES;[self installTapGestures];[self disable];[self begin];}
-- (void)background:(NSNotification *)note {self.active=NO;self.generation++;self.busy=NO;[self disable];self.window.hidden=YES;}
+- (void)begin {if(self.identity.savedCode.length)[self verify];}
+- (void)foreground:(NSNotification *)note {self.active=YES;self.activationRequested=NO;self.window.hidden=YES;self.generation++;self.busy=NO;[self installTapGestures];[self disable];[self begin];}
+- (void)background:(NSNotification *)note {self.active=NO;self.activationRequested=NO;self.generation++;self.busy=NO;[self disable];self.window.hidden=YES;}
 - (void)disable {
  AZAuthorized.store(false);AZDeadline.store(0);
  [[AZLocationService sharedService]restoreDefault];
@@ -70,8 +74,10 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
  if(!code.length)return;
  if(!self.pathAvailable){[self disable];return;}
  NSError *identityError=nil;if(![self.identity prepare:&identityError]){[self disable];[self showActivation];self.message.text=identityError.localizedDescription ?: @"تعذر إعداد هوية الترخيص.";return;}
- self.busy=YES;NSUInteger gen=++self.generation;double start=AZMonotonic();self.message.text=@"جارٍ التحقق…";
- NSDictionary *body=@{@"key":code,@"installation_id":self.identity.installationID,@"bundle_id":NSBundle.mainBundle.bundleIdentifier ?: @"unknown",@"public_key":self.identity.publicKey};
+ NSString *installation=[self.identity installationIDForCode:code error:&identityError];
+ if(!installation.length){[self disable];[self showActivation];self.message.text=identityError.localizedDescription;return;}
+ self.busy=YES;self.lastVerify=AZMonotonic();NSUInteger gen=++self.generation;double start=AZMonotonic();self.message.text=@"جارٍ التحقق…";
+ NSDictionary *body=@{@"key":code,@"installation_id":installation,@"bundle_id":NSBundle.mainBundle.bundleIdentifier ?: @"unknown",@"public_key":self.identity.publicKey};
  [self.api post:@"/license/challenge" body:body completion:^(NSDictionary *challenge,NSError *error){
   if(gen!=self.generation)return;
   if(error){[self failed:error code:challenge[@"error"]];return;}
@@ -81,12 +87,13 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
   [self.api post:@"/license/verify" body:@{@"challenge_id":challenge[@"challenge_id"],@"signature":signature} completion:^(NSDictionary *envelope,NSError *verifyError){
    if(gen!=self.generation)return;self.busy=NO;
    if(verifyError){[self failed:verifyError code:envelope[@"error"]];return;}
-   NSError *leaseError=nil;NSDictionary *lease=[self.api validateLease:envelope installation:self.identity.installationID bundle:NSBundle.mainBundle.bundleIdentifier ?: @"unknown" error:&leaseError];
+   NSError *leaseError=nil;NSDictionary *lease=[self.api validateLease:envelope installation:installation bundle:NSBundle.mainBundle.bundleIdentifier ?: @"unknown" error:&leaseError];
    if(!lease||![lease[@"challenge_id"]isEqual:challenge[@"challenge_id"]]||!self.pathAvailable||!self.active){[self failed:leaseError code:@"invalid_server_signature"];return;}
    double ttl=[lease[@"lease_expires_at"]doubleValue]-[lease[@"server_time"]doubleValue]-(AZMonotonic()-start);
    if(ttl<=0){[self failed:nil code:@"expired"];return;}
    if(![self.identity saveCode:code error:&leaseError]){[self disable];self.message.text=leaseError.localizedDescription;return;}
    self.subscriptionDeadline=AZMonotonic()+[lease[@"expires_at"]doubleValue]-[lease[@"server_time"]doubleValue]-(AZMonotonic()-start);
+   self.subscription=lease;self.activationRequested=NO;
    self.pendingCode=nil;AZDeadline.store(AZMonotonic()+ttl);AZAuthorized.store(true);
    [[AZAppManager sharedManager]initialize];
    self.window.hidden=YES;self.message.text=@"تم التفعيل. انقر الشاشة ثلاث مرات متتالية لإظهار الأداة.";
@@ -120,11 +127,11 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
 - (void)tripleTapped:(UITapGestureRecognizer *)gesture {
  if(gesture.state!=UIGestureRecognizerStateRecognized||!self.active)return;
  if(AZLicenseCanRun())[[AZUIController sharedController]installWhenReady];
- else if(self.identity.savedCode.length){[self showActivation];[self verify];}else [self showActivation];
+ else {self.activationRequested=YES;[self showActivation];if(self.identity.savedCode.length)[self verify];}
 }
 - (UIWindowScene *)scene API_AVAILABLE(ios(13.0)) {for(UIScene *s in UIApplication.sharedApplication.connectedScenes)if([s isKindOfClass:UIWindowScene.class]&&s.activationState==UISceneActivationStateForegroundActive)return (UIWindowScene *)s;return nil;}
 - (void)showActivation {
- if(!self.active)return;
+ if(!self.active||!self.activationRequested)return;
  if(!self.window){
   UIWindow *w=nil;if(@available(iOS 13.0,*)){UIWindowScene *scene=[self scene];if(!scene){dispatch_after(dispatch_time(DISPATCH_TIME_NOW,NSEC_PER_SEC),dispatch_get_main_queue(),^{[self showActivation];});return;}w=[[AZLicenseWindow alloc]initWithWindowScene:scene];}else w=[[AZLicenseWindow alloc]initWithFrame:UIScreen.mainScreen.bounds];
   w.windowLevel=UIWindowLevelAlert+101;w.backgroundColor=UIColor.clearColor;UIViewController *vc=[UIViewController new];vc.view.backgroundColor=UIColor.clearColor;w.rootViewController=vc;self.window=w;
@@ -140,6 +147,16 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
  }
  self.window.hidden=NO;
 }
+- (NSString *)subscriptionSummary {
+ NSDictionary *s=self.subscription;
+ if(!s)return @"لم يتم التحقق من اشتراك صالح في هذه الجلسة.";
+ NSDateFormatter *format=[NSDateFormatter new];format.locale=[[NSLocale alloc]initWithLocaleIdentifier:@"ar"];format.dateFormat=@"yyyy/MM/dd HH:mm";
+ double expiry=[s[@"expires_at"]doubleValue];
+ double remaining=MAX(0,self.subscriptionDeadline-AZMonotonic());
+ NSString *activation=[s[@"activated_at"]isKindOfClass:NSNumber.class]?[format stringFromDate:[NSDate dateWithTimeIntervalSince1970:[s[@"activated_at"]doubleValue]]]:@"غير متوفر";
+ NSString *end=[format stringFromDate:[NSDate dateWithTimeIntervalSince1970:expiry]];
+ return [NSString stringWithFormat:@"حالة الاشتراك: %@\nتاريخ التفعيل: %@\nتاريخ الانتهاء: %@\nالأيام المتبقية: %.0f",AZLicenseCanRun()?@"نشط":@"الأداة متوقفة",activation,end,ceil(remaining/86400.0)];
+}
 - (void)activateTapped {[self.field resignFirstResponder];[self activateCode:self.field.text ?: @""];}
-- (void)closeActivation {[self.field resignFirstResponder];self.window.hidden=YES;}
+- (void)closeActivation {self.activationRequested=NO;[self.field resignFirstResponder];self.window.hidden=YES;}
 @end

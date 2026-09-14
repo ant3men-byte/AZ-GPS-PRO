@@ -918,14 +918,7 @@
 #pragma mark - Informational
 
 - (void)showStatus {
-    NSDictionary *s=[[AZRuntimeState sharedState] snapshotForUI];
-    NSString *m=[NSString stringWithFormat:
-                 @"Location: %@\nLat: %.6f\nLon: %.6f\nLast: %@",
-                 [s[@"locationEnabled"] boolValue] ? @"Active" : @"Default",
-                 [s[@"currentLatitude"] doubleValue],
-                 [s[@"currentLongitude"] doubleValue],
-                 s[@"lastAction"] ?: @""];
-    [self alert:m];
+    [self alert:[[AZLicenseManager sharedManager]subscriptionSummary]];
 }
 
 - (void)showSupport {

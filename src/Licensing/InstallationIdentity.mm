@@ -1,4 +1,5 @@
 #import "InstallationIdentity.h"
+#import <CommonCrypto/CommonDigest.h>
 @interface AZInstallationIdentity ()
 @property(nonatomic,readwrite,copy) NSString *installationID;
 @property(nonatomic,readwrite,copy) NSString *publicKey;
@@ -42,6 +43,16 @@
  SecKeyRef pub=SecKeyCopyPublicKey(self.privateKey);if(!pub)return NO;
  CFErrorRef ce=NULL;NSData *data=CFBridgingRelease(SecKeyCopyExternalRepresentation(pub,&ce));CFRelease(pub);if(ce)CFRelease(ce);
  if(data.length!=65)return NO;self.publicKey=[data base64EncodedStringWithOptions:0];return YES;
+}
+- (NSString *)installationIDForCode:(NSString *)code error:(NSError **)error {
+ if(![self prepare:error])return nil;
+ NSString *normalized=[[code stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]uppercaseString];
+ NSData *bytes=[normalized dataUsingEncoding:NSUTF8StringEncoding];unsigned char hash[CC_SHA256_DIGEST_LENGTH];CC_SHA256(bytes.bytes,(CC_LONG)bytes.length,hash);
+ NSMutableString *account=[NSMutableString stringWithString:@"installation-code-"];for(NSUInteger i=0;i<sizeof(hash);i++)[account appendFormat:@"%02x",hash[i]];
+ NSString *identifier=[self read:account];if(identifier.length)return identifier.lowercaseString;
+ NSString *saved=[[self.savedCode stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]uppercaseString];
+ identifier=[saved isEqualToString:normalized]?self.installationID:NSUUID.UUID.UUIDString.lowercaseString;
+ if(![self save:identifier account:account error:error])return nil;return identifier;
 }
 - (NSString *)signMessage:(NSString *)message error:(NSError **)error {
  if(![self prepare:error])return nil;NSData *data=[message dataUsingEncoding:NSUTF8StringEncoding];CFErrorRef ce=NULL;

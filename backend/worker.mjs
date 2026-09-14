@@ -79,7 +79,12 @@ export async function handle(request,env){
   if((c.purpose==='transfer')!==path.includes('/transfer/'))return json({error:'wrong_purpose'},403);
   const ok=await verifyInstallation(c.public_key,data.signature,c.message);
   const result=await rpc(env,'az_complete',{p_id:data.challenge_id,p_signature_ok:ok});
-  if(result?.error)return json(result,403);return json(c.purpose==='transfer'?result:await signLease(result,env));
+  if(result?.error)return json(result,403);
+  if(c.purpose==='transfer')return json(result);
+  const details=await rpc(env,'az_admin',{p_action:'detail',p_id:result.license_id,p_data:{}});
+  const activated=Date.parse(details?.activated_at)/1000;
+  if(!Number.isFinite(activated))throw Error('Missing subscription activation date');
+  return json(await signLease({...result,activated_at:activated},env));
  }
  return json({error:'not_found'},404);
 }

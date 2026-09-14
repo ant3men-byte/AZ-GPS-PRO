@@ -7,4 +7,5 @@ BOOL AZLicenseCanRun(void);
 - (void)verify;
 - (void)activateCode:(NSString *)code;
 - (void)showActivation;
+- (NSString *)subscriptionSummary;
 @end
