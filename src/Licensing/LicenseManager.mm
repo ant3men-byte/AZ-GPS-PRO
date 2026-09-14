@@ -8,7 +8,6 @@
 #import <Network/Network.h>
 #import <mach/mach_time.h>
 #import <atomic>
-#import <AVFoundation/AVFoundation.h>
 static std::atomic<bool> AZAuthorized(false);
 static std::atomic<double> AZDeadline(0);
 static double AZMonotonic(void){static mach_timebase_info_data_t info;static dispatch_once_t once;dispatch_once(&once,^{mach_timebase_info(&info);});return (double)mach_continuous_time()*info.numer/info.denom/1e9;}
@@ -31,10 +30,7 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
 @property(nonatomic) BOOL pathAvailable;
 @property(nonatomic) BOOL active;
 @property(nonatomic) NSUInteger generation;
-@property(nonatomic) BOOL audioObserved;
-@property(nonatomic) float lastVolume;
-@property(nonatomic) NSUInteger presses;
-@property(nonatomic) double lastPress;
+@property(nonatomic,strong) NSHashTable<UIWindow *> *tapWindows;
 @property(nonatomic) double subscriptionDeadline;
 @property(nonatomic,copy) NSString *pendingCode;
 @end
@@ -47,8 +43,9 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
  self.monitor=nw_path_monitor_create();nw_path_monitor_set_queue(self.monitor,dispatch_get_main_queue());
  __weak AZLicenseManager *weak=self;
  nw_path_monitor_set_update_handler(self.monitor,^(nw_path_t path){AZLicenseManager *m=weak;if(!m)return;BOOL available=nw_path_get_status(path)==nw_path_status_satisfied;BOOL changed=m.pathAvailable!=available;m.pathAvailable=available;if(!available){m.generation++;m.busy=NO;[m disable];m.message.text=@"لا يوجد اتصال. الأداة متوقفة حتى ينجح التحقق.";}else if(changed&&m.active)[m verify];});nw_path_monitor_start(self.monitor);
- self.lastVolume=AVAudioSession.sharedInstance.outputVolume;
- [AVAudioSession.sharedInstance addObserver:self forKeyPath:@"outputVolume" options:NSKeyValueObservingOptionNew context:NULL];self.audioObserved=YES;
+ self.tapWindows=[NSHashTable weakObjectsHashTable];
+ [[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(windowVisible:) name:UIWindowDidBecomeVisibleNotification object:nil];
+ [self installTapGestures];
  self.timer=[NSTimer timerWithTimeInterval:1 repeats:YES block:^(__unused NSTimer *t){AZLicenseManager *m=weak;if(!m||!m.active)return;[m installTapGestures];if(AZAuthorized.load()&&!AZLicenseCanRun()){[m disable];if(m.subscriptionDeadline>0&&AZMonotonic()>=m.subscriptionDeadline){[m showActivation];m.message.text=[m friendly:@"expired"];}}static double lastVerify=0;if(AZMonotonic()-lastVerify>=60){lastVerify=AZMonotonic();[m verify];}}];[[NSRunLoop mainRunLoop]addTimer:self.timer forMode:NSRunLoopCommonModes];
  self.active=UIApplication.sharedApplication.applicationState==UIApplicationStateActive;
  if(self.active)[self begin];
