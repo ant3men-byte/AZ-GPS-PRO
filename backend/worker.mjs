@@ -1,4 +1,10 @@
 const enc=new TextEncoder();
+export function generateLicenseKey(){
+ const alphabet='23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+ const chars=[...crypto.getRandomValues(new Uint8Array(12))].map(x=>alphabet[x&31]).join('');
+ return 'az-'+chars.match(/.{4}/g).join('-');
+}
+export const validLicenseKey=key=>typeof key==='string'&&/^(?:AZP-[0-9A-F]{48}|az-(?:[2-9A-HJ-NP-Z]{4}-){2}[2-9A-HJ-NP-Z]{4})$/i.test(key.trim());
 export const b64=b=>btoa(String.fromCharCode(...new Uint8Array(b)));
 export const unb64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
 const uuid=s=>typeof s==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
@@ -50,8 +56,8 @@ export async function handle(request,env){
   if(path==='/admin/licenses'){
    if(request.method==='GET')return json(await rpc(env,'az_admin',{p_action:'list',p_data:{search:(url.searchParams.get('search')||'').slice(0,80)||null}}));
    const duration=Number(data.duration_days),limit=Number(data.transfer_limit??2);if(!Number.isInteger(duration)||duration<1||duration>36500||!Number.isInteger(limit)||limit<0||limit>100)return json({error:'invalid_input'},400);
-   const key='AZP-'+[...crypto.getRandomValues(new Uint8Array(24))].map(x=>x.toString(16).padStart(2,'0')).join('').toUpperCase();
-   const result=await rpc(env,'az_admin',{p_action:'create',p_data:{key_hash:await hashLicense(key,env.LICENSE_KEY_PEPPER),masked_key:`AZP-…${key.slice(-8)}`,duration_days:duration,transfer_limit:limit}});
+   const key=generateLicenseKey();
+   const result=await rpc(env,'az_admin',{p_action:'create',p_data:{key_hash:await hashLicense(key,env.LICENSE_KEY_PEPPER),masked_key:`az-…${key.slice(-4)}`,duration_days:duration,transfer_limit:limit}});
    return json({...result,key},201);
   }
   const m=path.match(/^\/admin\/licenses\/([^/]+)(?:\/([^/]+))?$/);if(!m||!uuid(m[1]))return json({error:'not_found'},404);
@@ -62,7 +68,7 @@ export async function handle(request,env){
  }
  if(request.method!=='POST')return json({error:'method_not_allowed'},405);
  if(['/license/activate','/license/challenge','/license/transfer/challenge'].includes(path)){
-  if(typeof data.key!=='string'||!/^AZP-[0-9A-F]{48}$/i.test(data.key.trim())||!uuid(data.installation_id)||typeof data.bundle_id!=='string'||!/^[-a-zA-Z0-9._]{1,200}$/.test(data.bundle_id)||typeof data.public_key!=='string')return json({error:'invalid_input'},400);
+  if(!validLicenseKey(data.key)||!uuid(data.installation_id)||typeof data.bundle_id!=='string'||!/^[-a-zA-Z0-9._]{1,200}$/.test(data.bundle_id)||typeof data.public_key!=='string')return json({error:'invalid_input'},400);
   try{const key=unb64(data.public_key);if(key.length!==65||key[0]!==4)throw Error();await crypto.subtle.importKey('raw',key,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);}catch{return json({error:'invalid_public_key'},400);}
   let target=null;const transfer=path.includes('/transfer/');if(transfer){target=data.target;if(!target||!uuid(target.installation_id)||typeof target.public_key!=='string')return json({error:'invalid_target'},400);try{await crypto.subtle.importKey('raw',unb64(target.public_key),{name:'ECDSA',namedCurve:'P-256'},false,['verify']);}catch{return json({error:'invalid_target'},400);}}
   const result=await rpc(env,'az_issue',{p_hash:await hashLicense(data.key,env.LICENSE_KEY_PEPPER),p_installation:data.installation_id,p_bundle:data.bundle_id,p_public:data.public_key,p_purpose:transfer?'transfer':'verify',p_target:target});return json(result,result?.error?403:200);
