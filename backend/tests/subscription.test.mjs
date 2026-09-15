@@ -11,6 +11,7 @@ test('verified lease includes activation date without exposing admin details',as
  const original=globalThis.fetch;
  globalThis.fetch=async(url,options)=>{
   const args=JSON.parse(options.body);
+  if(url.endsWith('/az_rate_limit'))return Response.json(true);
   if(url.endsWith('/az_challenge'))return Response.json({purpose:'verify',public_key:publicKey,message:'proof'});
   if(url.endsWith('/az_complete')){assert.equal(args.p_signature_ok,true);return Response.json({challenge_id:id,license_id:id,installation_id:id,bundle_id:'com.test.app',status:'active',server_time:1000,expires_at:2000,revision:1});}
   if(url.endsWith('/az_admin')){assert.equal(args.p_action,'detail');assert.equal(args.p_id,id);return Response.json({activated_at:'1970-01-01T00:10:00Z',audit:[{secret:'hidden'}],key_hash:'hidden'});}
