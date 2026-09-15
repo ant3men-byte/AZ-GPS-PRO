@@ -4,6 +4,7 @@
 #import "AZGPS.h"
 #import "UI.h"
 #import "Audit.h"
+#import "LicenseSessionPolicy.h"
 #import <UIKit/UIKit.h>
 #import <Network/Network.h>
 #import <mach/mach_time.h>
@@ -20,7 +21,7 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
 @interface AZLicenseManager () <UIGestureRecognizerDelegate>
 @property(nonatomic,strong) AZInstallationIdentity *identity;
 @property(nonatomic,strong) AZLicenseAPIClient *api;
-@property(nonatomic,strong) NSTimer *timer;
+@property(nonatomic,strong) NSTimer *expiryTimer;
 @property(nonatomic,strong) UIWindow *window;
 @property(nonatomic,strong) UIView *card;
 @property(nonatomic,strong) UITextField *field;
@@ -36,7 +37,8 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
 @property(nonatomic,copy) NSString *pendingCode;
 @property(nonatomic) BOOL activationRequested;
 @property(nonatomic,strong) NSDictionary *subscription;
-@property(nonatomic) double lastVerify;
+@property(nonatomic) double backgroundAt;
+@property(nonatomic) BOOL verifiedThisProcess;
 @end
 @implementation AZLicenseManager
 + (instancetype)sharedManager {static AZLicenseManager *m;static dispatch_once_t once;dispatch_once(&once,^{m=[self new];m.identity=[AZInstallationIdentity new];m.api=[AZLicenseAPIClient new];m.pathAvailable=YES;});return m;}
@@ -46,17 +48,24 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
  [[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(background:) name:UIApplicationDidEnterBackgroundNotification object:nil];
  self.monitor=nw_path_monitor_create();nw_path_monitor_set_queue(self.monitor,dispatch_get_main_queue());
  __weak AZLicenseManager *weak=self;
- nw_path_monitor_set_update_handler(self.monitor,^(nw_path_t path){AZLicenseManager *m=weak;if(!m)return;BOOL available=nw_path_get_status(path)==nw_path_status_satisfied;BOOL changed=m.pathAvailable!=available;m.pathAvailable=available;if(!available){m.generation++;m.busy=NO;[m disable];m.message.text=@"لا يوجد اتصال. الأداة متوقفة حتى ينجح التحقق.";}else if(changed&&m.active)[m verify];});nw_path_monitor_start(self.monitor);
+ nw_path_monitor_set_update_handler(self.monitor,^(nw_path_t path){AZLicenseManager *m=weak;if(!m)return;BOOL available=nw_path_get_status(path)==nw_path_status_satisfied;BOOL becameAvailable=!m.pathAvailable&&available;m.pathAvailable=available;if(becameAvailable&&m.active&&!m.verifiedThisProcess&&m.identity.savedCode.length)[m verify];});nw_path_monitor_start(self.monitor);
  self.tapWindows=[NSHashTable weakObjectsHashTable];
  [[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(windowVisible:) name:UIWindowDidBecomeVisibleNotification object:nil];
  [self installTapGestures];
- self.timer=[NSTimer timerWithTimeInterval:1 repeats:YES block:^(__unused NSTimer *t){AZLicenseManager *m=weak;if(!m||!m.active)return;[m installTapGestures];if(AZAuthorized.load()&&!AZLicenseCanRun()){[m disable];if(m.subscriptionDeadline>0&&AZMonotonic()>=m.subscriptionDeadline){[m showActivation];m.message.text=[m friendly:@"expired"];}}if(AZMonotonic()-m.lastVerify>=60){m.lastVerify=AZMonotonic();[m verify];}}];[[NSRunLoop mainRunLoop]addTimer:self.timer forMode:NSRunLoopCommonModes];
+
  self.active=UIApplication.sharedApplication.applicationState==UIApplicationStateActive;
  if(self.active)[self begin];
 }
-- (void)begin {if(self.identity.savedCode.length)[self verify];}
-- (void)foreground:(NSNotification *)note {self.active=YES;self.activationRequested=NO;self.window.hidden=YES;self.generation++;self.busy=NO;[self installTapGestures];[self disable];[self begin];}
-- (void)background:(NSNotification *)note {self.active=NO;self.activationRequested=NO;self.generation++;self.busy=NO;[self disable];self.window.hidden=YES;}
+- (void)begin {if(self.identity.savedCode.length&&!self.verifiedThisProcess)[self verify];}
+- (void)foreground:(NSNotification *)note {
+ self.active=YES;self.activationRequested=NO;self.window.hidden=YES;[self installTapGestures];
+ if(!AZLicenseNeedsForegroundVerification(self.verifiedThisProcess,self.backgroundAt,AZMonotonic()))return;
+ if(self.backgroundAt>0){self.generation++;self.busy=NO;self.verifiedThisProcess=NO;[self disable];}
+ [self begin];
+}
+- (void)background:(NSNotification *)note {
+ self.active=NO;self.activationRequested=NO;self.backgroundAt=AZMonotonic();self.window.hidden=YES;
+}
 - (void)disable {
  AZAuthorized.store(false);AZDeadline.store(0);
  [[AZLocationService sharedService]restoreDefault];
@@ -76,7 +85,7 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
  NSError *identityError=nil;if(![self.identity prepare:&identityError]){[self disable];[self showActivation];self.message.text=identityError.localizedDescription ?: @"تعذر إعداد هوية الترخيص.";return;}
  NSString *installation=[self.identity installationIDForCode:code error:&identityError];
  if(!installation.length){[self disable];[self showActivation];self.message.text=identityError.localizedDescription;return;}
- self.busy=YES;self.lastVerify=AZMonotonic();NSUInteger gen=++self.generation;double start=AZMonotonic();self.message.text=@"جارٍ التحقق…";
+ self.busy=YES;NSUInteger gen=++self.generation;double start=AZMonotonic();self.message.text=@"جارٍ التحقق…";
  NSDictionary *body=@{@"key":code,@"installation_id":installation,@"bundle_id":NSBundle.mainBundle.bundleIdentifier ?: @"unknown",@"public_key":self.identity.publicKey};
  [self.api post:@"/license/challenge" body:body completion:^(NSDictionary *challenge,NSError *error){
   if(gen!=self.generation)return;
@@ -93,13 +102,20 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
    if(ttl<=0){[self failed:nil code:@"expired"];return;}
    if(![self.identity saveCode:code error:&leaseError]){[self disable];self.message.text=leaseError.localizedDescription;return;}
    self.subscriptionDeadline=AZMonotonic()+[lease[@"expires_at"]doubleValue]-[lease[@"server_time"]doubleValue]-(AZMonotonic()-start);
-   self.subscription=lease;self.activationRequested=NO;
-   self.pendingCode=nil;AZDeadline.store(AZMonotonic()+ttl);AZAuthorized.store(true);
+   self.subscription=lease;self.activationRequested=NO;self.verifiedThisProcess=YES;
+   self.pendingCode=nil;AZDeadline.store(self.subscriptionDeadline);AZAuthorized.store(true);
+   [self.expiryTimer invalidate];double until=self.subscriptionDeadline-AZMonotonic();
+   self.expiryTimer=[NSTimer scheduledTimerWithTimeInterval:MAX(.1,until) target:self selector:@selector(subscriptionExpired:) userInfo:nil repeats:NO];
    [[AZAppManager sharedManager]initialize];
    self.window.hidden=YES;self.message.text=@"تم التفعيل. انقر الشاشة ثلاث مرات متتالية لإظهار الأداة.";
    AZAuditLogFeature(@"license",@"VALID",@"Online verification succeeded; protected UI remains hidden");
   }];
  }];
+}
+- (void)subscriptionExpired:(NSTimer *)timer {
+ if(AZMonotonic()<self.subscriptionDeadline)return;
+ self.verifiedThisProcess=NO;[self disable];
+ self.message.text=[self friendly:@"expired"];
 }
 - (void)failed:(NSError *)error code:(NSString *)code {
  self.busy=NO;[self disable];

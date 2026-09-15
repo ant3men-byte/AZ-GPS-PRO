@@ -1,4 +1,5 @@
 #include "../src/Shared/Portable.h"
+#include "../src/Licensing/LicenseSessionPolicy.h"
 #include <cstdio>
 #include <cmath>
 #include <string>
@@ -43,6 +44,15 @@ int main() {
              "boundary coordinates accepted");
     AZ_CHECK(!validateFavorite("azgps.location/1", true, true, true, true, 90.0001, 0),
              "just-outside boundary rejected");
+
+    // ---- Licensing session lifecycle ----
+    AZ_CHECK(!licenseNeedsForegroundVerification(true,100,1799), "short background does not reverify");
+    AZ_CHECK(licenseNeedsForegroundVerification(true,100,1900), "30 minute background reverifies");
+    AZ_CHECK(licenseNeedsForegroundVerification(false,0,100), "unverified process verifies");
+    AZ_CHECK_NEAR(licensedSessionDeadline(500,1000,11800,2),11298,0.001,
+                  "verified server time maps expiration to monotonic deadline");
+    AZ_CHECK_NEAR(licensedSessionDeadline(500,1000,11800,2),11298,0.001,
+                  "device wall clock is absent from deadline calculation");
 
     return wf_report("AZGPS-AllTests");
 }
