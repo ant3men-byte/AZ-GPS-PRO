@@ -25,7 +25,7 @@ jobs:
       - run: node --check backend/worker.mjs && node --test backend/tests/*.test.mjs
       - name: Apply schema and exercise license lifecycle
         run: |
-          psql -h localhost -U postgres -d licensing_test -v ON_ERROR_STOP=1 -c 'create role anon; create role authenticated; create role service_role;'
+          psql -h localhost -U postgres -d licensing_test -v ON_ERROR_STOP=1 -c 'create role anon; create role authenticated; create role service_role; create schema auth; create table auth.users(id uuid primary key);'
           psql -h localhost -U postgres -d licensing_test -v ON_ERROR_STOP=1 -f backend/schema.sql
           psql -h localhost -U postgres -d licensing_test -v ON_ERROR_STOP=1 -f backend/migrations/002_security_hardening.sql
           psql -h localhost -U postgres -d licensing_test -v ON_ERROR_STOP=1 -f backend/tests/database.sql
