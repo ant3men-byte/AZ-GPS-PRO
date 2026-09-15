@@ -1,37 +1,6 @@
-# نظام ترخيص AZ GPS PRO
+undefined
+## Process-session verification policy
 
-## التكامل الحالي
-الديلوب يحمل وحدة الترخيص فقط عند بدء التطبيق. الاعتراضات المحمية لا تسجل حتى نجاح التحقق عبر الإنترنت. واجهة التفعيل مستقلة وخفيفة ويمكن إغلاقها دون إيقاف التطبيق المضيف. عند النجاح تبقى أداة GPS مخفية؛ ثلاث نقرات متتالية بإصبع واحد على الشاشة تظهر الأداة.
+A cold process performs one silent online verification when a stored license exists. A successful verification authorizes the process until the subscription deadline derived from signed server time and monotonic elapsed time. There is no 60/120-second refresh loop. Background/foreground transitions shorter than 30 minutes preserve authorization; a return after 30 minutes disables protected behavior and performs one silent recheck. The activation window is user-invoked by three screen taps and is never presented by a silent verification failure.
 
-كل كود يرتبط بـ bundle identifier واحد، وبهوية تثبيت Keychain واحدة افتراضيًا. لا يعتمد الربط على IDFV. إعادة توقيع التطبيق بهوية مختلفة أو فقدان Keychain قد يتطلب نقل الترخيص من الإدارة. Secure Enclave هو الخيار الأول مع بديل مفتاح P-256 دائم داخل Keychain إذا لم يتوفر.
-
-لا توجد مهلة أوفلاين ولا ترخيص مخزن صالح عبر الفتحات. عند كل عودة من الخلفية يُلغى الإذن القديم ويُطلب تحقق جديد. انقطاع مسار الشبكة يوقف الأداة. فشل التحقق الدوري يوقفها كذلك. الإذن الموقع صالح 120 ثانية كحد أقصى، وتجديده كل 60 ثانية أثناء نشاط التطبيق؛ تعطل الإنترنت مع بقاء Wi-Fi متصلًا قد يُكتشف عند التجديد وليس فورًا. قرب الانتهاء تستخدم ساعة monotonic ومدة من وقت السيرفر، ولا يعتمد السماح على ساعة الجهاز.
-
-عند انتهاء/إلغاء/إيقاف الكود تظهر نافذة التفعيل مجددًا. يمكن استخدام كود آخر أو إعادة التحقق بعد تمديد الكود نفسه. عند التعطيل تعود اعتراضات الموقع والمعرف للمرور الأصلي. تبقى wrappers المثبتة في الذاكرة لتجنب فك hooks أثناء استدعائها، لكنها لا تنتج قيمًا محاكية دون ترخيص.
-
-## بروتوكول التحقق
-1. يرسل العميل الكود، هوية التثبيت، bundle ID، والمفتاح العام P-256 إلى `/license/challenge`.
-2. ينشئ PostgreSQL challenge عشوائيًا لمدة 60 ثانية، مع رسالة محددة محفوظة.
-3. يوقع Keychain/Secure Enclave الرسالة بـ ECDSA SHA-256 (DER).
-4. يفحص السيرفر التوقيع ويستهلك challenge ذريًا، ثم يتحقق من حالة الترخيص وارتباط التطبيق وعدد التثبيتات.
-5. في أول نجاح فقط يضبط وقت التفعيل والانتهاء من ساعة PostgreSQL.
-6. يرجع payload base64 موقعًا بـ RSA SHA-256. المكتبة تتحقق من نفس بايتات payload بالمفتاح العام المضمّن، ثم من التطبيق والتثبيت والحالة والمدة.
-
-API: POST `/license/activate` و`/license/challenge` لإنشاء challenge. POST `/license/verify` و`/license/refresh` و`/license/status` لإكمال challenge وتلقي إذن موقع. استعلام الحالة يتطلب إثبات التثبيت ولا يكشف بيانات بكود فقط.
-
-نقل العميل: POST `/license/transfer/challenge` يضيف target `{installation_id,public_key}` إلى الطلب ويُوقّع التثبيت القديم الرسالة. POST `/license/transfer/complete` يكمل النقل. الإدارة توفر إعادة الربط. النقل لا يعيد أول تفعيل أو المدة ولا يغير التطبيق المرتبط.
-
-## التمديد
-قبل التفعيل تُضاف الأيام إلى duration_days. بعد التفعيل يُضاف التمديد إلى تاريخ الانتهاء للاشتراك الساري، أو من وقت السيرفر الحالي للاشتراك المنتهي. activated_at محفوظ دائمًا. الإلغاء النهائي لا يقبل إعادة التفعيل. كل تغيير يرفع revision ويُسجل.
-
-## حدود يلزم اختبارها على الجهاز
-يُضاف UITapGestureRecognizer بثلاث نقرات إلى نوافذ التطبيق الظاهرة، ويُحدّث عند ظهور نافذة أو عودة التطبيق للمقدمة. لا يلغي لمس عناصر التطبيق ولا يؤخره، ويسمح بالتعرف المتزامن على إيماءات التطبيق. يجب اختبار الاختصار في شاشات التطبيق المستهدف؛ عناصر التطبيق قد تستجيب للنقرات أيضًا، لذا يفضل النقر على مساحة فارغة.
-
-واجهة التفعيل الحالية تصميم مؤقت وظيفي، إلى حين إرسال مرجع الشكل. يجب تجربة لوحة المفاتيح والدوران واللمس خارج النافذة على جهاز حقيقي.
-
-## الأمان التشغيلي
-الأكواد 192-bit عشوائية، مخزنة HMAC SHA-256 بمفتاح pepper خارج قاعدة البيانات. الكود الكامل يُرجع مرة عند الإصدار فقط ولا يُسجل. قاعدة البيانات لا تمنح anon/authenticated صلاحية الجداول أو دوال الترخيص؛ يستخدم السيرفر service_role فقط. لوحة الإدارة تستخدم token عشوائيًا طويلًا داخل ذاكرة الجلسة، ولا يحفظ في browser storage. لإنتاج واسع يُفضّل وضع لوحة الإدارة خلف مصادقة متعددة العوامل/Access بالإضافة لهذا token.
-
-طبّق rate limiting عند مزود الاستضافة على `/license/*` و`/admin/*` قبل التوزيع. يوجد حد 20 challenge لكل ترخيص في الدقيقة داخل قاعدة البيانات. لا توجد حماية موزعة عالمية من طلبات الأكواد غير الصالحة داخل التطبيق؛ تحتاج Firewall خارجيًا. اجعل الاحتفاظ بالسجل مناسبًا لحجم الاستخدام واحذف challenges المنتهية دوريًا. مثال صيانة: `delete from public.license_challenges where expires_at < now() - interval '1 day';`.
-
-لا توجد حماية مطلقة من تعديل dylib على جهاز المستخدم. bundle ID من العميل ليس إثباتًا لتطبيق أصلي غير معدل؛ الربط يمنع الاستخدام المعتاد عبر تطبيقات مختلفة لكنه لا يمثل attestation. إعادة الإلغاء تظهر في التحقق التالي، والإذن الموقع قصير العمر يحد التأخير.
+This policy means suspension or revocation is enforced on the next cold launch or recheck after a 30-minute background absence. Subscription expiration is still enforced while the process remains open without trusting the device wall clock.

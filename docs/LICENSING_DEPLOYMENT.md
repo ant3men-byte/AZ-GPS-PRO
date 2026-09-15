@@ -37,3 +37,28 @@ node backend/scripts/generate-keys.mjs /PRIVATE/DIRECTORY/OUTSIDE/REPOSITORY
 
 ## 6. فحص الربط
 أنشئ كودًا تجريبيًا، تحقق أن تاريخي التفعيل والانتهاء فارغان، وفعله داخل تطبيق اختباري. افحص أن أول تفعيل بدأ المدة. أعد فتح التطبيق: لا GPS UI قبل اختصار الصوت. جرب تطبيقًا ثانيًا بكود نفسه ويجب رفضه. اختبر التمديد والإيقاف والإلغاء وتعطل السيرفر على التطبيق المضيف قبل دمج الفرع مع main.
+
+## Security hardening deployment
+
+1. Apply `backend/migrations/002_security_hardening.sql` in Supabase SQL Editor. It is idempotent.
+2. Set public `SUPABASE_PUBLISHABLE_KEY` as a Vercel Config value.
+3. Set `CRON_SECRET` as a Vercel Secret. Vercel sends it to the daily cleanup endpoint.
+4. Keep `ADMIN_TOKEN` during migration. On the first Supabase login, enter it once, enroll TOTP, and complete bootstrap.
+5. Confirm subsequent email/password/TOTP login works without the legacy token.
+6. Remove `ADMIN_TOKEN` only after that confirmation and redeploy.
+
+The dashboard keeps the Supabase session in memory only. The server validates the access token with Supabase Auth, requires the signed `aal2` claim, and confirms membership in `admin_accounts`. The service-role key and signing keys remain server-only.
+
+## Monitoring and maintenance
+
+`GET /health/licensing` returns only a generic service/database status. Configure a Vercel uptime check and alert on non-200 responses, elevated 5xx responses, or unusual 401/403/429 volume. Do not send request bodies or authorization headers to external monitoring.
+
+Vercel invokes `/maintenance/cleanup` daily. It deletes expired challenges after 24 hours, stale rate-limit buckets after two days, and non-business audit noise after `AUDIT_RETENTION_DAYS` (365 by default). License records, activation/expiration dates, bindings, transfers, and critical audit events are retained.
+
+## Backups and recovery
+
+Enable Supabase backups appropriate to the account plan and perform a restore drill before release. Before a schema migration, export `licenses`, `installations`, `license_transfers`, `audit_logs`, and `admin_accounts`. Recovery must restore the database and the matching Vercel secrets, especially `LICENSE_KEY_PEPPER` and the lease private key. Store secret copies outside GitHub.
+
+## Rollback
+
+Keep the last successful Vercel deployment. If the new dashboard or API fails, promote that deployment in Vercel. The migration only adds tables, functions, and a trigger, so the previous backend remains compatible. Do not drop the added database objects during an incident. Restore the previous `licensing/system` commit only after the old deployment is serving.
