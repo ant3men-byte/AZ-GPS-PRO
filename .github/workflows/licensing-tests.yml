@@ -23,6 +23,12 @@ jobs:
         with:
           node-version: 22
       - run: node --check backend/worker.mjs && node --test backend/tests/*.test.mjs
+      - name: Build admin dashboard bundle
+        working-directory: backend
+        env:
+          SUPABASE_URL: https://example.supabase.co
+          SUPABASE_PUBLISHABLE_KEY: sb_publishable_test_only
+        run: npm install --ignore-scripts && node scripts/vercel-build.mjs
       - name: Apply schema and exercise license lifecycle
         run: |
           psql -h localhost -U postgres -d licensing_test -v ON_ERROR_STOP=1 -c 'create role anon; create role authenticated; create role service_role; create schema auth; create table auth.users(id uuid primary key);'
