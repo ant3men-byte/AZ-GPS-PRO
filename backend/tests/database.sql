@@ -1,0 +1,36 @@
+begin;
+do $$
+declare a jsonb;b jsonb;c jsonb;lid uuid;cid uuid;expiry timestamptz;activation timestamptz;
+inst uuid=gen_random_uuid();other uuid=gen_random_uuid();target uuid=gen_random_uuid();
+begin
+ a=az_admin('create',null,'{"key_hash":"test-hash","masked_key":"AZP-test","duration_days":30,"transfer_limit":2}');lid=(a->>'id')::uuid;
+ if a->>'activated_at' is not null or a->>'expires_at' is not null then raise exception 'creation started duration';end if;
+ a=az_issue('test-hash',inst,'com.test.app','test-public');cid=(a->>'challenge_id')::uuid;
+ b=az_complete(cid,false);if b->>'error'<>'invalid_signature' then raise exception 'wrong signature accepted';end if;
+ a=az_issue('test-hash',inst,'com.test.app','test-public');cid=(a->>'challenge_id')::uuid;
+ b=az_complete(cid,true);if b->>'status'<>'active' then raise exception 'activation failed %',b;end if;
+ select activated_at,expires_at into activation,expiry from licenses where id=lid;
+ if expiry-activation<>interval '30 days' then raise exception 'duration wrong';end if;
+ b=az_complete(cid,true);if b->>'error'<>'replayed_or_expired_challenge' then raise exception 'replay accepted';end if;
+ a=az_issue('test-hash',inst,'com.test.app','test-public');b=az_complete((a->>'challenge_id')::uuid,true);
+ if b->>'status'<>'active' then raise exception 'same installation failed';end if;
+ a=az_issue('test-hash',other,'com.test.app','other-public');b=az_complete((a->>'challenge_id')::uuid,true);
+ if b->>'error'<>'device_limit' then raise exception 'device limit failed';end if;
+ b=az_issue('test-hash',inst,'com.other.app','test-public');if b->>'error'<>'wrong_app' then raise exception 'app binding failed';end if;
+ perform az_admin('extend',lid,'{"days":7}');
+ if (select activated_at from licenses where id=lid)<>activation or (select expires_at from licenses where id=lid)<>expiry+interval '7 days' then raise exception 'extension changed activation';end if;
+ perform az_admin('suspend',lid);b=az_issue('test-hash',inst,'com.test.app','test-public');if b->>'error'<>'suspended' then raise exception 'suspension failed';end if;
+ perform az_admin('reactivate',lid);
+ a=az_issue('test-hash',inst,'com.test.app','test-public','transfer',jsonb_build_object('installation_id',target,'public_key','target-public'));
+ b=az_complete((a->>'challenge_id')::uuid,true);if b->>'transferred'<>'true' then raise exception 'transfer failed %',b;end if;
+ a=az_issue('test-hash',inst,'com.test.app','test-public');b=az_complete((a->>'challenge_id')::uuid,true);if b->>'error'<>'device_limit' then raise exception 'old binding still valid';end if;
+ perform az_admin('reset-device',lid);if (select transfer_count from licenses where id=lid)<>2 then raise exception 'reset counter failed';end if;
+ b=az_admin('reset-device',lid);if b->>'error'<>'transfer_limit' then raise exception 'reset limit failed';end if;
+ update licenses set expires_at=now()-interval '1 day' where id=lid;
+ b=az_issue('test-hash',target,'com.test.app','target-public');if b->>'error'<>'expired' then raise exception 'expiry failed';end if;
+ perform az_admin('extend',lid,'{"days":30}');if (select expires_at from licenses where id=lid)<=now()+interval '29 days' then raise exception 'expired extension base wrong';end if;
+ perform az_admin('revoke',lid);b=az_admin('reactivate',lid);if b->>'error'<>'revoked' then raise exception 'revocation not permanent';end if;
+ b=az_issue('unknown',other,'com.test.app','other-public');if b->>'error'<>'invalid' then raise exception 'invalid key accepted';end if;
+ if has_function_privilege('anon','public.az_complete(uuid,boolean)','execute') then raise exception 'anonymous RPC privilege';end if;
+end $$;
+rollback;

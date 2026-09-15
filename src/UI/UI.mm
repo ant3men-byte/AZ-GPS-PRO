@@ -1,3 +1,4 @@
+#import "LicenseManager.h"
 #import "AZGPS.h"
 #import "UI.h"
 #import "Audit.h"
@@ -106,16 +107,9 @@
     return obj;
 }
 
-+ (void)load {
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        [[AZUIController sharedController] installWhenReady];
-    });
-}
-
 - (void)installWhenReady {
     dispatch_async(dispatch_get_main_queue(), ^{
-        [self installOverlay];
+        if(AZLicenseCanRun()){[self installOverlay];if(!self->_panel)[self buildPanel];}
     });
 }
 
@@ -134,6 +128,7 @@
 }
 
 - (void)installOverlay {
+    if(!AZLicenseCanRun())return;
     if (_overlayWindow) {
         _overlayWindow.hidden = NO;
         return;
@@ -145,7 +140,7 @@
         if (!scene) {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC),
                            dispatch_get_main_queue(), ^{
-                [self installOverlay];
+                if(AZLicenseCanRun()){[self installOverlay];if(!self->_panel)[self buildPanel];}
             });
             return;
         }
@@ -254,6 +249,7 @@
 }
 
 - (void)buildPanel {
+    if(!AZLicenseCanRun())return;
     UIView *root = _overlayWindow.rootViewController.view;
     if (!root) return;
 
@@ -329,7 +325,6 @@
     UIColor *green  = [UIColor colorWithRed:.10 green:.72 blue:.30 alpha:1];
     UIColor *red    = [UIColor colorWithRed:.92 green:.23 blue:.20 alpha:1];
     UIColor *cyan   = [UIColor colorWithRed:.0 green:.72 blue:.88 alpha:1];
-    UIColor *teal   = [UIColor colorWithRed:.08 green:.72 blue:.62 alpha:1];
     UIColor *purple = [UIColor colorWithRed:.58 green:.31 blue:.92 alpha:1];
 
     CGFloat gap=8, third=(inner-gap*2)/3.0;
@@ -427,7 +422,7 @@
     UIButton *hide=[self button:@"\u25C9\u0338  \u0625\u062E\u0641\u0627\u0621 \u0627\u0644\u0623\u062F\u0627\u0629" frame:CGRectMake(margin+half+gap,715,half,50)
                            tint:[UIColor colorWithWhite:.65 alpha:1]];
     [stop addTarget:self action:@selector(stopAll) forControlEvents:UIControlEventTouchUpInside];
-    [hide addTarget:self action:@selector(closePanel) forControlEvents:UIControlEventTouchUpInside];
+    [hide addTarget:self action:@selector(hideTool) forControlEvents:UIControlEventTouchUpInside];
     
     [content addSubview:stop]; [content addSubview:hide];
 
@@ -923,14 +918,7 @@
 #pragma mark - Informational
 
 - (void)showStatus {
-    NSDictionary *s=[[AZRuntimeState sharedState] snapshotForUI];
-    NSString *m=[NSString stringWithFormat:
-                 @"Location: %@\nLat: %.6f\nLon: %.6f\nLast: %@",
-                 [s[@"locationEnabled"] boolValue] ? @"Active" : @"Default",
-                 [s[@"currentLatitude"] doubleValue],
-                 [s[@"currentLongitude"] doubleValue],
-                 s[@"lastAction"] ?: @""];
-    [self alert:m];
+    [self alert:[[AZLicenseManager sharedManager]subscriptionSummary]];
 }
 
 - (void)showSupport {
@@ -951,7 +939,17 @@
 }
 
 
+- (void)hideForLicense {
+    if(_panel)[self closePanel];
+    _overlayWindow.hidden=YES;
+}
+
 #pragma mark - Close
+
+- (void)hideTool {
+    if(_panel)[self closePanel];
+    _overlayWindow.hidden=YES;
+}
 
 - (void)closePanel {
     [_searchBar resignFirstResponder];

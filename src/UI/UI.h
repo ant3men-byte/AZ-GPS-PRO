@@ -4,5 +4,7 @@
 
 + (instancetype)sharedController;
 - (void)installWhenReady;
+- (void)hideForLicense;
+- (void)hideTool;
 
 @end

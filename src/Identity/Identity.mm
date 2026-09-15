@@ -1,3 +1,4 @@
+#import "LicenseManager.h"
 #import "Identity.h"
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
@@ -14,13 +15,14 @@ NSString *AZSavedIdentity(void) {
     return [NSUserDefaults.standardUserDefaults stringForKey:AZIdentityValueKey] ?: @"";
 }
 static NSUUID *AZIdentityGetter(id device,SEL selector) {
-    if(AZIdentityEnabled()){
+    if(AZLicenseCanRun() && AZIdentityEnabled()){
         NSUUID *uuid=[[NSUUID alloc]initWithUUIDString:AZSavedIdentity()];
         if(uuid)return uuid;
     }
     return AZOriginalIdentifierForVendor?AZOriginalIdentifierForVendor(device,selector):nil;
 }
 void AZInstallIdentityHook(void) {
+    if(!AZLicenseCanRun())return;
     static dispatch_once_t once;
     dispatch_once(&once,^{
         Method method=class_getInstanceMethod(UIDevice.class,@selector(identifierForVendor));
@@ -34,6 +36,7 @@ NSString *AZCurrentIdentity(void) {
     return UIDevice.currentDevice.identifierForVendor.UUIDString ?: @"";
 }
 BOOL AZSetIdentity(NSString *value) {
+    if(!AZLicenseCanRun())return NO;
     AZInstallIdentityHook();
     if(!AZOriginalIdentifierForVendor)return NO;
     NSUUID *uuid=[[NSUUID alloc]initWithUUIDString:[value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]];
