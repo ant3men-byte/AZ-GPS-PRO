@@ -44,12 +44,10 @@ async function verifiedSupabaseUser(request,env){
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),6000);
  try{const res=await fetch(`${env.SUPABASE_URL}/auth/v1/user`,{headers:{apikey:env.SUPABASE_PUBLISHABLE_KEY,Authorization:`Bearer ${token}`},signal:controller.signal});
   if(!res.ok)return null;const user=await res.json(),claims=jwtClaims(token);
-  return uuid(user.id)&&claims.sub===user.id&&claims.aal==='aal2'?user:null;
+  return uuid(user.id)&&claims.sub===user.id&&['aal1','aal2'].includes(claims.aal)?user:null;
  }catch{return null;}finally{clearTimeout(timer);}
 }
 async function adminIdentity(request,env){
- const supplied=request.headers.get('Authorization')||'';
- if(env.ADMIN_TOKEN&&await sameSecret(supplied,`Bearer ${env.ADMIN_TOKEN}`))return {actor:'legacy-admin',legacy:true};
  const user=await verifiedSupabaseUser(request,env);if(!user)return null;
  const allowed=await rpc(env,'az_admin_security',{p_action:'authorize',p_user:user.id,p_detail:{}});
  return allowed?.admin?{actor:user.id,user}:null;
@@ -73,14 +71,9 @@ export async function handle(request,env){
   if(request.method!=='GET'||!env.CRON_SECRET||!await sameSecret(request.headers.get('Authorization')||'',`Bearer ${env.CRON_SECRET}`))return json({error:'unauthorized'},401);
   return json(await rpc(env,'az_cleanup_licensing',{p_audit_days:Number(env.AUDIT_RETENTION_DAYS)||365}));
  }
- if(path==='/admin/auth/bootstrap'){
-  const user=await verifiedSupabaseUser(request,env),migration=request.headers.get('x-admin-migration')||'';
-  if(!user||!env.ADMIN_TOKEN||!await sameSecret(migration,env.ADMIN_TOKEN))return json({error:'unauthorized'},401);
-  return json(await rpc(env,'az_admin_security',{p_action:'bootstrap',p_user:user.id,p_detail:{method:'legacy_migration'}}));
- }
  const adminUser=admin?await adminIdentity(request,env):null;
  if(admin&&!adminUser)return json({error:'unauthorized'},401);
- if(path==='/admin/auth/session')return json(await rpc(env,'az_admin_security',{p_action:'login',p_user:adminUser.user?.id||null,p_detail:{method:adminUser.legacy?'legacy':'mfa'}}));
+ if(path==='/admin/auth/session')return json(await rpc(env,'az_admin_security',{p_action:'login',p_user:adminUser.user?.id||null,p_detail:{method:'password'}}));
  if(path==='/admin/auth/logout')return json(await rpc(env,'az_admin_security',{p_action:'logout',p_user:adminUser.user?.id||null,p_detail:{}}));
  if(!['GET','POST'].includes(request.method))return json({error:'method_not_allowed'},405);
  let data={};if(request.method==='POST'){

@@ -42,12 +42,11 @@ node backend/scripts/generate-keys.mjs /PRIVATE/DIRECTORY/OUTSIDE/REPOSITORY
 
 1. Apply `backend/migrations/002_security_hardening.sql` in Supabase SQL Editor. It is idempotent.
 2. Set public `SUPABASE_PUBLISHABLE_KEY` as a Vercel Config value.
-3. Set `CRON_SECRET` as a Vercel Secret. Vercel sends it to the daily cleanup endpoint.
-4. Keep `ADMIN_TOKEN` during migration. On the first Supabase login, enter it once, enroll TOTP, and complete bootstrap.
-5. Confirm subsequent email/password/TOTP login works without the legacy token.
-6. Remove `ADMIN_TOKEN` only after that confirmation and redeploy.
+3. Set `CRON_SECRET` as a Vercel Secret.
+4. Add the intended administrator explicitly to `admin_accounts` by selecting its ID from `auth.users`.
+5. Sign in with that user's email and password. Other authenticated users remain unauthorized.
 
-The dashboard keeps the Supabase session in memory only. The server validates the access token with Supabase Auth, requires the signed `aal2` claim, and confirms membership in `admin_accounts`. The service-role key and signing keys remain server-only.
+The dashboard keeps the Supabase session in memory only. The server validates every access token directly with Supabase Auth and checks `admin_accounts`. The service-role key and signing keys remain server-only. `ADMIN_TOKEN` is no longer accepted by the dashboard or API and can be deleted from Vercel.
 
 ## Monitoring and maintenance
 

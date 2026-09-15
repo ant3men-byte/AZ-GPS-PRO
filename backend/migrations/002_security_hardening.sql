@@ -30,11 +30,7 @@ create or replace function public.az_admin_security(p_action text,p_user uuid,p_
 returns jsonb language plpgsql security definer set search_path=public,pg_temp as $$
 declare allowed boolean;
 begin
- if p_action='bootstrap' then
-  insert into admin_accounts(user_id) values(p_user) on conflict(user_id) do update set enabled=true;
-  insert into audit_logs(event,actor,detail) values('admin_bootstrap',p_user::text,p_detail);
-  return jsonb_build_object('admin',true);
- elsif p_action='authorize' then
+ if p_action='authorize' then
   select enabled into allowed from admin_accounts where user_id=p_user;
   return jsonb_build_object('admin',coalesce(allowed,false));
  elsif p_action='login' then
