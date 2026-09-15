@@ -24,7 +24,7 @@ begin
  returning * into r;
  if r.hits=p_limit+1 then insert into audit_logs(event,actor,detail) values('rate_limit','server',jsonb_build_object('bucket',split_part(p_bucket,':',1)));end if;
  return r.hits<=p_limit;
-end $;
+end $$;
 
 create or replace function public.az_admin_security(p_action text,p_user uuid,p_detail jsonb default '{}')
 returns jsonb language plpgsql security definer set search_path=public,pg_temp as $$
