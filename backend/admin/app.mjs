@@ -1,5 +1,5 @@
 import {createClient} from '@supabase/supabase-js';
-import {SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY} from './public-config.mjs';
+import {SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY} from '../public/public-config.mjs';
 const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:false,autoRefreshToken:true,detectSessionInUrl:false}});
 let token='',selected='';const $=id=>document.getElementById(id);
 const labels={unused:'غير مستخدم',active:'فعال',expired:'منتهي',suspended:'موقوف',revoked:'ملغى'};
