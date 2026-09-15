@@ -6,5 +6,9 @@
     "test": "node --test tests/*.test.mjs",
     "check": "node --check worker.mjs",
     "deploy": "npx wrangler deploy"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.57.4",
+    "esbuild": "0.25.9"
   }
 }

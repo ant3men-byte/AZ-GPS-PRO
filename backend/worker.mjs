@@ -35,16 +35,43 @@ async function rpc(env,name,args){
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),8000);
  try {const res=await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/${name}`,{method:'POST',headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,Authorization:`Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,'Content-Type':'application/json'},body:JSON.stringify(args),signal:controller.signal});if(!res.ok)throw Error('Database unavailable');return await res.json();}finally{clearTimeout(timer);}
 }
-async function adminAuthorized(request,env){
- const supplied=request.headers.get('Authorization')||'';if(!env.ADMIN_TOKEN||env.ADMIN_TOKEN.length<32)return false;
- const a=new Uint8Array(await crypto.subtle.digest('SHA-256',enc.encode(supplied))),b=new Uint8Array(await crypto.subtle.digest('SHA-256',enc.encode(`Bearer ${env.ADMIN_TOKEN}`)));let diff=0;for(let i=0;i<a.length;i++)diff|=a[i]^b[i];return diff===0;
+async function digest(value){return [...new Uint8Array(await crypto.subtle.digest('SHA-256',enc.encode(value)))].map(x=>x.toString(16).padStart(2,'0')).join('');}
+async function sameSecret(a,b){if(!a||!b)return false;const x=await digest(a),y=await digest(b);let diff=0;for(let i=0;i<x.length;i++)diff|=x.charCodeAt(i)^y.charCodeAt(i);return diff===0;}
+function jwtClaims(token){try{return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0))));}catch{return {};}}
+async function verifiedSupabaseUser(request,env){
+ const supplied=request.headers.get('Authorization')||'',token=supplied.startsWith('Bearer ')?supplied.slice(7):'';
+ if(!token||!env.SUPABASE_PUBLISHABLE_KEY)return null;
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),6000);
+ try{const res=await fetch(`${env.SUPABASE_URL}/auth/v1/user`,{headers:{apikey:env.SUPABASE_PUBLISHABLE_KEY,Authorization:`Bearer ${token}`},signal:controller.signal});
+  if(!res.ok)return null;const user=await res.json(),claims=jwtClaims(token);
+  return uuid(user.id)&&claims.sub===user.id&&claims.aal==='aal2'?user:null;
+ }catch{return null;}finally{clearTimeout(timer);}
 }
+async function adminIdentity(request,env){
+ const supplied=request.headers.get('Authorization')||'';
+ if(env.ADMIN_TOKEN&&await sameSecret(supplied,`Bearer ${env.ADMIN_TOKEN}`))return {actor:'legacy-admin',legacy:true};
+ const user=await verifiedSupabaseUser(request,env);if(!user)return null;
+ const allowed=await rpc(env,'az_admin_security',{p_action:'authorize',p_user:user.id,p_detail:{}});
+ return allowed?.admin?{actor:user.id,user}:null;
+}
+async function allowed(env,bucket,limit,seconds){const r=await rpc(env,'az_rate_limit',{p_bucket:bucket,p_limit:limit,p_window_seconds:seconds});return r===true;}
 export async function handle(request,env){
  const url=new URL(request.url),path=url.pathname;
  if(!path.startsWith('/license/')&&!path.startsWith('/admin/licenses'))return env.ASSETS?env.ASSETS.fetch(request):new Response('Not found',{status:404});
  if(url.protocol!=='https:'&&url.hostname!=='localhost'&&url.hostname!=='127.0.0.1')return json({error:'https_required'},400);
  if(!env.SUPABASE_URL||!env.SUPABASE_SERVICE_ROLE_KEY||!env.LICENSE_KEY_PEPPER||!env.LEASE_PRIVATE_KEY_PKCS8_B64)return json({error:'server_not_configured'},503);
- const admin=path.startsWith('/admin/');if(admin&&!await adminAuthorized(request,env))return json({error:'unauthorized'},401);
+ const admin=path.startsWith('/admin/');
+ const forwarded=(request.headers.get('x-forwarded-for')||request.headers.get('x-real-ip')||'unknown').split(',')[0].trim();
+ const clientKey=await digest(forwarded+'|'+env.LICENSE_KEY_PEPPER);
+ if(path.startsWith('/license/')&&!await allowed(env,'license:'+clientKey,60,60))return json({error:'rate_limited'},429);
+ if(path==='/admin/auth/bootstrap'){
+  const user=await verifiedSupabaseUser(request,env),migration=request.headers.get('x-admin-migration')||'';
+  if(!user||!env.ADMIN_TOKEN||!await sameSecret(migration,env.ADMIN_TOKEN))return json({error:'unauthorized'},401);
+  return json(await rpc(env,'az_admin_security',{p_action:'bootstrap',p_user:user.id,p_detail:{method:'legacy_migration'}}));
+ }
+ const adminUser=admin?await adminIdentity(request,env):null;
+ if(admin&&!adminUser)return json({error:'unauthorized'},401);
+ if(admin&&!await allowed(env,'admin:'+clientKey,120,60))return json({error:'rate_limited'},429);
  if(!['GET','POST'].includes(request.method))return json({error:'method_not_allowed'},405);
  let data={};if(request.method==='POST'){
   if(Number(request.headers.get('Content-Length'))>16384)return json({error:'request_too_large'},413);
