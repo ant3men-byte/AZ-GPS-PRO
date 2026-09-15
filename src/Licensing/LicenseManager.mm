@@ -39,6 +39,9 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
 @property(nonatomic,strong) NSDictionary *subscription;
 @property(nonatomic) double backgroundAt;
 @property(nonatomic) BOOL verifiedThisProcess;
+@property(nonatomic) BOOL verificationAttempted;
+@property(nonatomic) BOOL revealAfterVerification;
+@property(nonatomic,copy) NSString *lastFailureCode;
 @end
 @implementation AZLicenseManager
 + (instancetype)sharedManager {static AZLicenseManager *m;static dispatch_once_t once;dispatch_once(&once,^{m=[self new];m.identity=[AZInstallationIdentity new];m.api=[AZLicenseAPIClient new];m.pathAvailable=YES;});return m;}
@@ -60,7 +63,7 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
 - (void)foreground:(NSNotification *)note {
  self.active=YES;self.activationRequested=NO;self.window.hidden=YES;[self installTapGestures];
  if(!AZLicenseNeedsForegroundVerification(self.verifiedThisProcess,self.backgroundAt,AZMonotonic()))return;
- if(self.backgroundAt>0){self.generation++;self.busy=NO;self.verifiedThisProcess=NO;[self disable];}
+ if(self.backgroundAt>0){self.generation++;self.busy=NO;self.verifiedThisProcess=NO;self.verificationAttempted=NO;self.revealAfterVerification=NO;self.lastFailureCode=nil;[self disable];}
  [self begin];
 }
 - (void)background:(NSNotification *)note {
@@ -81,11 +84,11 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
 - (void)verify {
  if(self.busy||!self.active)return;NSString *code=self.pendingCode ?: self.identity.savedCode;
  if(!code.length)return;
- if(!self.pathAvailable){[self disable];return;}
+ if(!self.pathAvailable){self.verificationAttempted=YES;self.lastFailureCode=@"offline";BOOL requested=self.revealAfterVerification||self.activationRequested;self.revealAfterVerification=NO;self.activationRequested=requested;[self disable];if(requested){[self showActivation];self.message.text=@"لا يوجد اتصال بالإنترنت.";}return;}
  NSError *identityError=nil;if(![self.identity prepare:&identityError]){[self disable];[self showActivation];self.message.text=identityError.localizedDescription ?: @"تعذر إعداد هوية الترخيص.";return;}
  NSString *installation=[self.identity installationIDForCode:code error:&identityError];
  if(!installation.length){[self disable];[self showActivation];self.message.text=identityError.localizedDescription;return;}
- self.busy=YES;NSUInteger gen=++self.generation;double start=AZMonotonic();self.message.text=@"جارٍ التحقق…";
+ self.busy=YES;self.verificationAttempted=YES;self.lastFailureCode=nil;NSUInteger gen=++self.generation;double start=AZMonotonic();self.message.text=@"جارٍ التحقق…";
  NSDictionary *body=@{@"key":code,@"installation_id":installation,@"bundle_id":NSBundle.mainBundle.bundleIdentifier ?: @"unknown",@"public_key":self.identity.publicKey};
  [self.api post:@"/license/challenge" body:body completion:^(NSDictionary *challenge,NSError *error){
   if(gen!=self.generation)return;
@@ -107,19 +110,20 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
    [self.expiryTimer invalidate];double until=self.subscriptionDeadline-AZMonotonic();
    self.expiryTimer=[NSTimer scheduledTimerWithTimeInterval:MAX(.1,until) target:self selector:@selector(subscriptionExpired:) userInfo:nil repeats:NO];
    [[AZAppManager sharedManager]initialize];
-   self.window.hidden=YES;self.message.text=@"تم التفعيل. انقر الشاشة ثلاث مرات متتالية لإظهار الأداة.";
+   BOOL reveal=self.revealAfterVerification;self.revealAfterVerification=NO;
+   self.window.hidden=YES;if(reveal)[[AZUIController sharedController]installWhenReady];self.message.text=@"تم التفعيل. انقر الشاشة ثلاث مرات متتالية لإظهار الأداة.";
    AZAuditLogFeature(@"license",@"VALID",@"Online verification succeeded; protected UI remains hidden");
   }];
  }];
 }
 - (void)subscriptionExpired:(NSTimer *)timer {
  if(AZMonotonic()<self.subscriptionDeadline)return;
- self.verifiedThisProcess=NO;[self disable];
+ self.verifiedThisProcess=NO;self.verificationAttempted=YES;self.lastFailureCode=@"expired";[self disable];
  self.message.text=[self friendly:@"expired"];
 }
 - (void)failed:(NSError *)error code:(NSString *)code {
- self.busy=NO;[self disable];
- BOOL show=self.pendingCode.length||[@[@"expired",@"revoked",@"suspended",@"invalid",@"device_limit",@"wrong_app"]containsObject:code ?: @""];
+ self.busy=NO;self.lastFailureCode=code ?: (error.code==NSURLErrorNotConnectedToInternet?@"offline":@"network");BOOL requested=self.revealAfterVerification||self.activationRequested;self.revealAfterVerification=NO;self.activationRequested=requested;[self disable];
+ BOOL show=requested;
  if(show)[self showActivation];self.message.text=[self friendly:code];
  AZAuditLogFeature(@"license",@"OFF",code ?: @"network_or_configuration_error");
 }
@@ -142,8 +146,12 @@ BOOL AZLicenseCanRun(void){return AZAuthorized.load()&&AZMonotonic()<AZDeadline.
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {return YES;}
 - (void)tripleTapped:(UITapGestureRecognizer *)gesture {
  if(gesture.state!=UIGestureRecognizerStateRecognized||!self.active)return;
- if(AZLicenseCanRun())[[AZUIController sharedController]installWhenReady];
- else {self.activationRequested=YES;[self showActivation];if(self.identity.savedCode.length)[self verify];}
+ switch(azgps::licenseRevealAction(AZLicenseCanRun(),self.identity.savedCode.length>0,self.busy,self.verificationAttempted)){
+  case azgps::LicenseRevealAction::ShowTool:[[AZUIController sharedController]installWhenReady];break;
+  case azgps::LicenseRevealAction::WaitForVerification:self.revealAfterVerification=YES;break;
+  case azgps::LicenseRevealAction::VerifyThenShow:self.revealAfterVerification=YES;[self verify];break;
+  case azgps::LicenseRevealAction::ShowActivation:self.activationRequested=YES;[self showActivation];self.message.text=[self friendly:self.lastFailureCode];break;
+ }
 }
 - (UIWindowScene *)scene API_AVAILABLE(ios(13.0)) {for(UIScene *s in UIApplication.sharedApplication.connectedScenes)if([s isKindOfClass:UIWindowScene.class]&&s.activationState==UISceneActivationStateForegroundActive)return (UIWindowScene *)s;return nil;}
 - (void)showActivation {

@@ -45,6 +45,17 @@ int main() {
     AZ_CHECK(!validateFavorite("azgps.location/1", true, true, true, true, 90.0001, 0),
              "just-outside boundary rejected");
 
+    // ---- Licensing reveal and session lifecycle ----
+    AZ_CHECK(licenseRevealAction(false,true,true,false)==LicenseRevealAction::WaitForVerification,
+             "triple tap waits for silent verification without flashing activation");
+    AZ_CHECK(licenseRevealAction(false,true,false,false)==LicenseRevealAction::VerifyThenShow,
+             "triple tap starts silent verification before revealing");
+    AZ_CHECK(licenseRevealAction(false,true,false,true)==LicenseRevealAction::ShowActivation,
+             "failed stored license requires activation after user request");
+    AZ_CHECK(licenseRevealAction(true,true,false,true)==LicenseRevealAction::ShowTool,
+             "authorized triple tap reveals tool");
+    AZ_CHECK(licenseRevealAction(false,false,false,false)==LicenseRevealAction::ShowActivation,
+             "missing license shows activation on user request");
     // ---- Licensing session lifecycle ----
     AZ_CHECK(!licenseNeedsForegroundVerification(true,100,1799), "short background does not reverify");
     AZ_CHECK(licenseNeedsForegroundVerification(true,100,1900), "30 minute background reverifies");

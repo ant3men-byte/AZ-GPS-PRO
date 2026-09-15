@@ -422,7 +422,7 @@
     UIButton *hide=[self button:@"\u25C9\u0338  \u0625\u062E\u0641\u0627\u0621 \u0627\u0644\u0623\u062F\u0627\u0629" frame:CGRectMake(margin+half+gap,715,half,50)
                            tint:[UIColor colorWithWhite:.65 alpha:1]];
     [stop addTarget:self action:@selector(stopAll) forControlEvents:UIControlEventTouchUpInside];
-    [hide addTarget:self action:@selector(closePanel) forControlEvents:UIControlEventTouchUpInside];
+    [hide addTarget:self action:@selector(hideTool) forControlEvents:UIControlEventTouchUpInside];
     
     [content addSubview:stop]; [content addSubview:hide];
 
@@ -945,6 +945,11 @@
 }
 
 #pragma mark - Close
+
+- (void)hideTool {
+    if(_panel)[self closePanel];
+    _overlayWindow.hidden=YES;
+}
 
 - (void)closePanel {
     [_searchBar resignFirstResponder];
