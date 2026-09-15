@@ -14,9 +14,10 @@ async function requireMfa(session){
  const factors=await supabase.auth.mfa.listFactors();if(factors.error)throw factors.error;
  let factor=factors.data.totp.find(x=>x.status==='verified');
  if(!factor){
+  for(const stale of factors.data.totp.filter(x=>x.status!=='verified')){const removed=await supabase.auth.mfa.unenroll({factorId:stale.id});if(removed.error)throw removed.error;}
   const enrolled=await supabase.auth.mfa.enroll({factorType:'totp',friendlyName:'AZ GPS PRO Admin'});if(enrolled.error)throw enrolled.error;
   factor=enrolled.data;$('mfaQr').src=enrolled.data.totp.qr_code;$('mfaSetup').hidden=false;
- }
+ }else{$('mfaQr').removeAttribute('src');$('mfaSetup').hidden=false;}
  const challenge=await supabase.auth.mfa.challenge({factorId:factor.id});if(challenge.error)throw challenge.error;
  const code=await new Promise(resolve=>{
   $('mfaCode').value='';$('mfaCode').focus();
