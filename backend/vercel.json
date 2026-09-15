@@ -10,6 +10,14 @@
   },
   "rewrites": [
     {
+      "source": "/health/licensing",
+      "destination": "/api/licensing?route=health/licensing"
+    },
+    {
+      "source": "/maintenance/cleanup",
+      "destination": "/api/licensing?route=maintenance/cleanup"
+    },
+    {
       "source": "/admin/auth/:path*",
       "destination": "/api/licensing?route=admin/auth/:path*"
     },
@@ -47,6 +55,12 @@
           "value": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://*.supabase.co; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         }
       ]
+    }
+  ],
+  "crons": [
+    {
+      "path": "/maintenance/cleanup",
+      "schedule": "17 3 * * *"
     }
   ]
 }

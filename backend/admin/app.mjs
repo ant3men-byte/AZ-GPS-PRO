@@ -20,16 +20,16 @@ async function requireMfa(session){
  const challenge=await supabase.auth.mfa.challenge({factorId:factor.id});if(challenge.error)throw challenge.error;
  const code=prompt('أدخل رمز المصادقة المكون من 6 أرقام من تطبيق Authenticator');if(!code)throw Error('يلزم رمز المصادقة الثنائية');
  const verified=await supabase.auth.mfa.verify({factorId:factor.id,challengeId:challenge.data.id,code:code.trim()});if(verified.error)throw verified.error;
- $('mfaSetup').hidden=true;return verified.data.access_token;
+ $('mfaSetup').hidden=true;return verified.data.session?.access_token||verified.data.access_token;
 }
 $('loginForm').onsubmit=e=>{e.preventDefault();run(async()=>{
  const email=$('email').value.trim(),password=$('password').value,legacy=$('migrationToken').value.trim();
  const signed=await supabase.auth.signInWithPassword({email,password});if(signed.error)throw signed.error;
  token=await requireMfa(signed.data.session);
  if(legacy)await api('/admin/auth/bootstrap',{}, {'X-Admin-Migration':legacy});
- await load();$('password').value='';$('migrationToken').value='';$('login').hidden=true;$('workspace').hidden=false;$('logout').hidden=false;
+ await api('/admin/auth/session',{});await load();$('password').value='';$('migrationToken').value='';$('login').hidden=true;$('workspace').hidden=false;$('logout').hidden=false;
 });};
-$('logout').onclick=()=>run(async()=>{await supabase.auth.signOut();token='';selected='';$('workspace').hidden=true;$('login').hidden=false;$('logout').hidden=true;$('newKey').hidden=true;$('keyValue').value='';$('detail').close();$('licenses').replaceChildren();});
+$('logout').onclick=()=>run(async()=>{try{await api('/admin/auth/logout',{});}finally{await supabase.auth.signOut();}token='';selected='';$('workspace').hidden=true;$('login').hidden=false;$('logout').hidden=true;$('newKey').hidden=true;$('keyValue').value='';$('detail').close();$('licenses').replaceChildren();});
 $('createForm').onsubmit=e=>{e.preventDefault();const form=new FormData(e.target);run(async()=>{const l=await api('/admin/licenses',{duration_days:Number(form.get('duration_days')),transfer_limit:Number(form.get('transfer_limit'))});$('keyValue').value=l.key;$('newKey').hidden=false;await load();});};
 $('searchForm').onsubmit=e=>{e.preventDefault();run(load);};$('copyKey').onclick=()=>run(()=>navigator.clipboard.writeText($('keyValue').value));$('dismissKey').onclick=()=>{$('newKey').hidden=true;$('keyValue').value='';};$('closeDetail').onclick=()=>$('detail').close();
 document.querySelectorAll('[data-action]').forEach(button=>button.onclick=()=>{const action=button.dataset.action;if(!selected)return;const warnings={revoke:'الإلغاء نهائي ولا يمكن التراجع عنه. هل تتابع؟','reset-device':'سيُلغى ارتباط التثبيت الحالي وتُستهلك مرة نقل. التثبيت الجديد يجب أن يكون لنفس التطبيق. هل تتابع؟',suspend:'هل توقف هذا الاشتراك مؤقتًا؟'};if(warnings[action]&&!confirm(warnings[action]))return;run(async()=>{await api(`/admin/licenses/${selected}/${action}`,action==='extend'?{days:Number($('extendDays').value)}:{});await detail(selected);await load();});});

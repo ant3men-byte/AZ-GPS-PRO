@@ -22,8 +22,9 @@ begin
   window_started_at=case when api_rate_limits.window_started_at<=now()-make_interval(secs=>p_window_seconds) then now() else api_rate_limits.window_started_at end,
   hits=case when api_rate_limits.window_started_at<=now()-make_interval(secs=>p_window_seconds) then 1 else api_rate_limits.hits+1 end
  returning * into r;
+ if r.hits=p_limit+1 then insert into audit_logs(event,actor,detail) values('rate_limit','server',jsonb_build_object('bucket',split_part(p_bucket,':',1)));end if;
  return r.hits<=p_limit;
-end $$;
+end $;
 
 create or replace function public.az_admin_security(p_action text,p_user uuid,p_detail jsonb default '{}')
 returns jsonb language plpgsql security definer set search_path=public,pg_temp as $$
@@ -34,6 +35,9 @@ begin
   insert into audit_logs(event,actor,detail) values('admin_bootstrap',p_user::text,p_detail);
   return jsonb_build_object('admin',true);
  elsif p_action='authorize' then
+  select enabled into allowed from admin_accounts where user_id=p_user;
+  return jsonb_build_object('admin',coalesce(allowed,false));
+ elsif p_action='login' then
   select enabled into allowed from admin_accounts where user_id=p_user;
   if coalesce(allowed,false) then
    update admin_accounts set last_login_at=now() where user_id=p_user;
@@ -63,3 +67,20 @@ begin
 end $$;
 revoke all on function public.az_cleanup_licensing(integer) from public,anon,authenticated;
 grant execute on function public.az_cleanup_licensing(integer) to service_role;
+
+create or replace function public.az_health()
+returns jsonb language sql security definer set search_path=public,pg_temp as $$
+ select jsonb_build_object('database','ok','checked_at',extract(epoch from now()));
+$$;
+revoke all on function public.az_health() from public,anon,authenticated;
+grant execute on function public.az_health() to service_role;
+
+create or replace function public.az_audit_expiration() returns trigger language plpgsql security definer set search_path=public,pg_temp as $$
+begin
+ if new.status='expired' and old.status is distinct from 'expired' then
+  insert into audit_logs(license_id,event,actor) values(new.id,'expiration','server');
+ end if;return new;
+end $$;
+drop trigger if exists az_license_expiration_audit on public.licenses;
+create trigger az_license_expiration_audit after update of status on public.licenses
+for each row execute function public.az_audit_expiration();

@@ -57,13 +57,22 @@ async function adminIdentity(request,env){
 async function allowed(env,bucket,limit,seconds){const r=await rpc(env,'az_rate_limit',{p_bucket:bucket,p_limit:limit,p_window_seconds:seconds});return r===true;}
 export async function handle(request,env){
  const url=new URL(request.url),path=url.pathname;
- if(!path.startsWith('/license/')&&!path.startsWith('/admin/licenses'))return env.ASSETS?env.ASSETS.fetch(request):new Response('Not found',{status:404});
+ if(!path.startsWith('/license/')&&!path.startsWith('/admin/')&&path!=='/health/licensing'&&path!=='/maintenance/cleanup')return env.ASSETS?env.ASSETS.fetch(request):new Response('Not found',{status:404});
  if(url.protocol!=='https:'&&url.hostname!=='localhost'&&url.hostname!=='127.0.0.1')return json({error:'https_required'},400);
  if(!env.SUPABASE_URL||!env.SUPABASE_SERVICE_ROLE_KEY||!env.LICENSE_KEY_PEPPER||!env.LEASE_PRIVATE_KEY_PKCS8_B64)return json({error:'server_not_configured'},503);
  const admin=path.startsWith('/admin/');
  const forwarded=(request.headers.get('x-forwarded-for')||request.headers.get('x-real-ip')||'unknown').split(',')[0].trim();
  const clientKey=await digest(forwarded+'|'+env.LICENSE_KEY_PEPPER);
  if(path.startsWith('/license/')&&!await allowed(env,'license:'+clientKey,60,60))return json({error:'rate_limited'},429);
+ if(admin&&!await allowed(env,'admin:'+clientKey,120,60))return json({error:'rate_limited'},429);
+ if(path==='/health/licensing'){
+  if(request.method!=='GET'||!await allowed(env,'health:'+clientKey,30,60))return json({error:'rate_limited'},429);
+  return json({status:'ok',...(await rpc(env,'az_health',{}))});
+ }
+ if(path==='/maintenance/cleanup'){
+  if(request.method!=='GET'||!env.CRON_SECRET||!await sameSecret(request.headers.get('Authorization')||'',`Bearer ${env.CRON_SECRET}`))return json({error:'unauthorized'},401);
+  return json(await rpc(env,'az_cleanup_licensing',{p_audit_days:Number(env.AUDIT_RETENTION_DAYS)||365}));
+ }
  if(path==='/admin/auth/bootstrap'){
   const user=await verifiedSupabaseUser(request,env),migration=request.headers.get('x-admin-migration')||'';
   if(!user||!env.ADMIN_TOKEN||!await sameSecret(migration,env.ADMIN_TOKEN))return json({error:'unauthorized'},401);
@@ -71,7 +80,8 @@ export async function handle(request,env){
  }
  const adminUser=admin?await adminIdentity(request,env):null;
  if(admin&&!adminUser)return json({error:'unauthorized'},401);
- if(admin&&!await allowed(env,'admin:'+clientKey,120,60))return json({error:'rate_limited'},429);
+ if(path==='/admin/auth/session')return json(await rpc(env,'az_admin_security',{p_action:'login',p_user:adminUser.user?.id||null,p_detail:{method:adminUser.legacy?'legacy':'mfa'}}));
+ if(path==='/admin/auth/logout')return json(await rpc(env,'az_admin_security',{p_action:'logout',p_user:adminUser.user?.id||null,p_detail:{}}));
  if(!['GET','POST'].includes(request.method))return json({error:'method_not_allowed'},405);
  let data={};if(request.method==='POST'){
   if(Number(request.headers.get('Content-Length'))>16384)return json({error:'request_too_large'},413);
@@ -115,4 +125,4 @@ export async function handle(request,env){
  }
  return json({error:'not_found'},404);
 }
-export default {async fetch(request,env){try{return await handle(request,env);}catch{return json({error:'verification_unavailable'},503);}}};
+export default {async fetch(request,env){try{return await handle(request,env);}catch(error){return json({error:error?.message==='Database unavailable'?'database_unavailable':'verification_unavailable'},503);}}};
