@@ -1,3 +1,4 @@
+import {encryptLicenseKey,decryptLicenseKey} from './license-key-vault.mjs';
 const enc=new TextEncoder();
 export function generateLicenseKey(){
  const alphabet='23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -87,14 +88,23 @@ export async function handle(request,env){
    if(request.method==='GET')return json(await rpc(env,'az_admin',{p_action:'list',p_data:{search:(url.searchParams.get('search')||'').slice(0,80)||null}}));
    const duration=Number(data.duration_days),limit=Number(data.transfer_limit??2);if(!Number.isInteger(duration)||duration<1||duration>36500||!Number.isInteger(limit)||limit<0||limit>100)return json({error:'invalid_input'},400);
    const key=generateLicenseKey();
-   const result=await rpc(env,'az_admin',{p_action:'create',p_data:{key_hash:await hashLicense(key,env.LICENSE_KEY_PEPPER),masked_key:`az-…${key.slice(-4)}`,duration_days:duration,transfer_limit:limit}});
-   return json({...result,key},201);
+   const keyHash=await hashLicense(key,env.LICENSE_KEY_PEPPER);
+   const encryptedKey=await encryptLicenseKey(key,keyHash,env.LICENSE_KEY_PEPPER);
+   const result=await rpc(env,'az_create_license',{p_data:{key_hash:keyHash,encrypted_key:encryptedKey,masked_key:`az-…${key.slice(-4)}`,duration_days:duration,transfer_limit:limit}});
+   return result?.error?json(result,409):json({...result,key},201);
   }
   const m=path.match(/^\/admin\/licenses\/([^/]+)(?:\/([^/]+))?$/);if(!m||!uuid(m[1]))return json({error:'not_found'},404);
   const action=m[2]||'detail';if((action==='detail')!==(request.method==='GET'))return json({error:'method_not_allowed'},405);
   if(!['detail','extend','suspend','reactivate','revoke','reset-device'].includes(action))return json({error:'not_found'},404);
   if(action==='extend'&&(!Number.isInteger(data.days)||data.days<1||data.days>36500))return json({error:'invalid_days'},400);
-  const result=await rpc(env,'az_admin',{p_action:action,p_id:m[1],p_data:action==='extend'?{days:data.days}:{}});return json(result,result?.error?409:200);
+  const result=await rpc(env,'az_admin',{p_action:action,p_id:m[1],p_data:action==='extend'?{days:data.days}:{}});
+  if(action==='detail'&&!result?.error){
+   const stored=await rpc(env,'az_read_license_key',{p_id:m[1],p_actor:adminUser.actor});
+   const key=stored?await decryptLicenseKey(stored.encrypted_key,stored.key_hash,env.LICENSE_KEY_PEPPER):null;
+   if(key&&await hashLicense(key,env.LICENSE_KEY_PEPPER)!==stored.key_hash)throw Error('Invalid stored license key');
+   return json({...result,key});
+  }
+  return json(result,result?.error?409:200);
  }
  if(request.method!=='POST')return json({error:'method_not_allowed'},405);
  if(['/license/activate','/license/challenge','/license/transfer/challenge'].includes(path)){
@@ -119,3 +129,4 @@ export async function handle(request,env){
  return json({error:'not_found'},404);
 }
 export default {async fetch(request,env){try{return await handle(request,env);}catch(error){return json({error:error?.message==='Database unavailable'?'database_unavailable':'verification_unavailable'},503);}}};
+
