@@ -125,7 +125,7 @@ begin
  end if;
  update installations set last_seen=now() where id=c.installation_id;
  insert into audit_logs(license_id,event,actor) values(l.id,'verification','client');
- return jsonb_build_object('challenge_id',c.id,'license_id',l.id,'installation_id',c.installation_id,'bundle_id',c.bundle_id,'status','active','expires_at',extract(epoch from l.expires_at),'server_time',extract(epoch from now()),'revision',l.revision);
+ return jsonb_build_object('challenge_id',c.id,'license_id',l.id,'installation_id',c.installation_id,'bundle_id',c.bundle_id,'status','active','activated_at',extract(epoch from l.activated_at),'expires_at',extract(epoch from l.expires_at),'server_time',extract(epoch from now()),'revision',l.revision);
 end $$;
 
 create function public.az_admin(p_action text,p_id uuid default null,p_data jsonb default '{}')

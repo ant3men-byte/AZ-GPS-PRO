@@ -121,9 +121,13 @@ export async function handle(request,env){
   const result=await rpc(env,'az_complete',{p_id:data.challenge_id,p_signature_ok:ok});
   if(result?.error)return json(result,403);
   if(c.purpose==='transfer')return json(result);
-  const details=await rpc(env,'az_admin',{p_action:'detail',p_id:result.license_id,p_data:{}});
-  const activated=Date.parse(details?.activated_at)/1000;
-  if(!Number.isFinite(activated))throw Error('Missing subscription activation date');
+  let activated=result.activated_at;
+  // Keep older databases working during rollout or rollback. Migrated databases skip this request.
+  if(activated===undefined){
+   const details=await rpc(env,'az_admin',{p_action:'detail',p_id:result.license_id,p_data:{}});
+   activated=Date.parse(details?.activated_at)/1000;
+  }
+  if(typeof activated!=='number'||!Number.isFinite(activated))throw Error('Missing subscription activation date');
   return json(await signLease({...result,activated_at:activated},env));
  }
  return json({error:'not_found'},404);

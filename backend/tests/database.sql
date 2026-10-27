@@ -10,10 +10,12 @@ begin
  a=az_issue('test-hash',inst,'com.test.app','test-public');cid=(a->>'challenge_id')::uuid;
  b=az_complete(cid,true);if b->>'status'<>'active' then raise exception 'activation failed %',b;end if;
  select activated_at,expires_at into activation,expiry from licenses where id=lid;
+ if jsonb_typeof(b->'activated_at') is distinct from 'number' or (b->>'activated_at')::numeric is distinct from extract(epoch from activation) then raise exception 'activation timestamp missing or changed';end if;
  if expiry-activation<>interval '30 days' then raise exception 'duration wrong';end if;
  b=az_complete(cid,true);if b->>'error'<>'replayed_or_expired_challenge' then raise exception 'replay accepted';end if;
  a=az_issue('test-hash',inst,'com.test.app','test-public');b=az_complete((a->>'challenge_id')::uuid,true);
  if b->>'status'<>'active' then raise exception 'same installation failed';end if;
+ if (b->>'activated_at')::numeric is distinct from extract(epoch from activation) then raise exception 'repeat verification changed activation timestamp';end if;
  a=az_issue('test-hash',other,'com.test.app','other-public');b=az_complete((a->>'challenge_id')::uuid,true);
  if b->>'error'<>'device_limit' then raise exception 'device limit failed';end if;
  b=az_issue('test-hash',inst,'com.other.app','test-public');if b->>'error'<>'wrong_app' then raise exception 'app binding failed';end if;
