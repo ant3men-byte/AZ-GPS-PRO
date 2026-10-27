@@ -35,3 +35,6 @@ jobs:
           psql -h localhost -U postgres -d licensing_test -v ON_ERROR_STOP=1 -f backend/schema.sql
           psql -h localhost -U postgres -d licensing_test -v ON_ERROR_STOP=1 -f backend/migrations/002_security_hardening.sql
           psql -h localhost -U postgres -d licensing_test -v ON_ERROR_STOP=1 -f backend/tests/database.sql
+          psql -h localhost -U postgres -d licensing_test -v ON_ERROR_STOP=1 -f backend/migrations/004_verification_activation_time.sql
+          psql -h localhost -U postgres -d licensing_test -v ON_ERROR_STOP=1 -f backend/migrations/004_verification_activation_time.sql
+          psql -h localhost -U postgres -d licensing_test -v ON_ERROR_STOP=1 -f backend/tests/database.sql
