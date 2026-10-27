@@ -2,15 +2,16 @@ SDK := $(shell xcrun --sdk iphoneos --show-sdk-path)
 CXX := $(shell xcrun --sdk iphoneos -f clang++)
 PRODUCT := AZ.GPS.PRO
 IOS_MIN := 12.0
-SOURCES := src/Location/Core.mm src/UI/UI.mm src/Audit/Audit.mm src/Shared/Portable.cpp src/Identity/Identity.mm
+SOURCES := src/Location/Core.mm src/UI/UI.mm src/Audit/Audit.mm src/Shared/Portable.cpp src/Identity/Identity.mm src/Licensing/InstallationIdentity.mm src/Licensing/LicenseAPIClient.mm src/Licensing/LicenseManager.mm
 HEADERS := $(wildcard src/*/*.h)
-INCLUDES := -Isrc/Location -Isrc/UI -Isrc/Audit -Isrc/Shared -Isrc/Identity
+INCLUDES := -Isrc/Location -Isrc/UI -Isrc/Audit -Isrc/Shared -Isrc/Identity -Isrc/Licensing -Ibuild
 FLAGS := -isysroot $(SDK) -arch arm64 -miphoneos-version-min=$(IOS_MIN) -fobjc-arc -std=c++17 -O2 -Wall -Wextra
 .PHONY: all test clean
 all: build/$(PRODUCT).dylib
 build/$(PRODUCT).dylib: $(SOURCES) $(HEADERS) Makefile
 	mkdir -p build
-	$(CXX) $(FLAGS) $(INCLUDES) -dynamiclib $(SOURCES) -framework Foundation -framework UIKit -framework CoreLocation -framework MapKit -framework CoreGraphics -framework QuartzCore -Wl,-install_name,@rpath/$(PRODUCT).dylib -o $@
+	node backend/scripts/build-config.mjs
+	$(CXX) $(FLAGS) -include build/LicenseBuildConfig.h $(INCLUDES) -dynamiclib $(SOURCES) -framework Foundation -framework UIKit -framework CoreLocation -framework MapKit -framework CoreGraphics -framework QuartzCore -framework Security -framework Network -framework AVFoundation -Wl,-install_name,@rpath/$(PRODUCT).dylib -o $@
 	codesign --force --sign - $@
 test:
 	mkdir -p build

@@ -12,7 +12,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Portable math tests
         run: make test
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Build iOS 12 arm64 library
+        env:
+          AZ_LICENSE_API_URL: ${{ vars.AZ_LICENSE_API_URL }}
+          AZ_LICENSE_PUBLIC_KEY_B64: ${{ vars.AZ_LICENSE_PUBLIC_KEY_B64 }}
         run: make
       - name: Verify binary
         run: |

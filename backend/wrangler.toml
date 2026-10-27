@@ -1,0 +1,11 @@
+name = "az-gps-pro-licensing"
+main = "worker.mjs"
+compatibility_date = "2026-09-01"
+[assets]
+directory = "./admin"
+binding = "ASSETS"
+run_worker_first = true
+[vars]
+LEASE_SECONDS = "120"
+# Secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, LICENSE_KEY_PEPPER,
+# LEASE_PRIVATE_KEY_PKCS8_B64, ADMIN_TOKEN

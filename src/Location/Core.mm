@@ -1,3 +1,4 @@
+#import "LicenseManager.h"
 #import "AZGPS.h"
 #import "Portable.h"
 #import "UI.h"
@@ -176,7 +177,7 @@ void AZRequestRealLocation(void (^completion)(CLLocation *,NSError *)) {
         return;
     }
 
-    if (state.locationEnabled) {
+    if (AZLicenseCanRun() && state.locationEnabled) {
 
         CLLocation *fake = AZGPS_buildFakeLocation(state);
 
@@ -213,7 +214,7 @@ void AZRequestRealLocation(void (^completion)(CLLocation *,NSError *)) {
 
 - (void)locationManager:(CLLocationManager *)manager didFailWithError:(NSError *)error {
     AZRuntimeState *state = [AZRuntimeState sharedState];
-    if (state.locationEnabled) return;
+    if (AZLicenseCanRun() && state.locationEnabled) return;
     id delegate = self.originalDelegate;
     if (delegate != nil && [delegate respondsToSelector:@selector(locationManager:didFailWithError:)]) {
         [(id<CLLocationManagerDelegate>)delegate locationManager:manager didFailWithError:error];
@@ -309,7 +310,7 @@ static NSHashTable *AZGPSManagers(void) {
 }
 static void AZGPSDeliver(CLLocationManager *manager) {
     AZRuntimeState *state=[AZRuntimeState sharedState];
-    if (!state.locationEnabled) return;
+    if (!AZLicenseCanRun() || !state.locationEnabled) return;
     AZGPS_attachProxy(manager);
     id delegate=AZGPS_rawDelegate(manager);
     if ([delegate respondsToSelector:@selector(locationManager:didUpdateLocations:)])
@@ -342,7 +343,7 @@ static CLLocation *AZGPS_hooked_location(id self, SEL _cmd) {
                 state.locationEnabled ? @"YES" : @"NO"]
         );
 
-        if (state.locationEnabled) {
+        if (AZLicenseCanRun() && state.locationEnabled) {
 
             CLLocation *fake =
                 AZGPS_buildFakeLocation(state);
@@ -466,7 +467,7 @@ static void AZGPS_hooked_requestLocation(id self, SEL _cmd) {
                 state.locationEnabled ? @"YES" : @"NO"]
         );
 
-        if (state.locationEnabled) {
+        if (AZLicenseCanRun() && state.locationEnabled) {
 
             AZAuditLogIntercept(
                 @"requestLocation",
@@ -845,6 +846,7 @@ static NSString * const kLastLonKey = @"azgps.lastLongitude";
 @implementation AZLocationService
 + (instancetype)sharedService { static AZLocationService *i=nil; static dispatch_once_t once; dispatch_once(&once, ^{ i=[[AZLocationService alloc] init];}); return i; }
 - (AZError *)setLocationWithLatitude:(double)latitude longitude:(double)longitude {
+    if(!AZLicenseCanRun())return [AZError errorWithCode:AZErrorCodeNotAvailable technical:@"Online license required"];
     if (latitude < -90.0 || latitude > 90.0 || longitude < -180.0 || longitude > 180.0) return [AZError errorWithCode:AZErrorCodeInvalidInput technical:@"Coordinate out of range"];
     [[AZRuntimeState sharedState] performUpdate:^(id<AZRuntimeStateMutable> state) {
         state.locationEnabled=YES; state.currentLatitude=latitude; state.currentLongitude=longitude; state.locationMode=AZLocationModeStatic; state.lastAction=@"Static location activated"; state.lastError=@"";
@@ -902,7 +904,7 @@ static NSString * const kLastLonKey = @"azgps.lastLongitude";
 
 @implementation AZAppManager
 + (instancetype)sharedManager { static AZAppManager *instance; static dispatch_once_t once; dispatch_once(&once, ^{ instance=[self new]; }); return instance; }
-- (void)initialize { AZGPSInstallRuntimeHooks(); AZInstallIdentityHook(); }
+- (void)initialize { if(!AZLicenseCanRun())return; AZGPSInstallRuntimeHooks(); AZInstallIdentityHook(); }
 - (AZError *)invalid { return [AZError errorWithCode:AZErrorCodeInvalidInput technical:@"Invalid parameters"]; }
 - (AZError *)activateStaticLocationWithLatitude:(double)lat longitude:(double)lon {
     if (!azgps::Coordinate{lat,lon}.isValid()) return [self invalid];
@@ -921,8 +923,7 @@ static NSString * const kLastLonKey = @"azgps.lastLongitude";
 @end
 __attribute__((constructor)) static void AZGPSEntry(void) {
     @autoreleasepool { dispatch_async(dispatch_get_main_queue(), ^{
-        [[AZAppManager sharedManager] initialize];
-        [[AZUIController sharedController] installWhenReady];
+        [[AZLicenseManager sharedManager] start];
     }); }
 }
 
